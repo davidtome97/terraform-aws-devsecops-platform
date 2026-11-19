@@ -19,6 +19,12 @@ variable "availability_zone" {
   type        = string
 }
 
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+
+}
+
 # GENERAL VARIABLES
 
 variable "project_name" {

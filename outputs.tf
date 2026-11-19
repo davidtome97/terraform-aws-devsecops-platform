@@ -55,3 +55,31 @@ output "security_group_id" {
   value = aws_security_group.terraform_lab.id
 
 }
+
+output "ubuntu_ami_id" {
+  description = "ID of the latest Ubuntu 24.04 LTS AMI"
+  value       = data.aws_ami.ubuntu.id
+
+}
+
+# COMPUTE OUTPUTS
+
+output "ec2_instance_id" {
+  description = "ID of the DevSecOps EC2 instance"
+  value       = aws_instance.devsecops.id
+}
+
+output "ec2_public_ip" {
+  description = "Public IPv4 address of the DevSecOps EC2 instance"
+  value       = aws_instance.devsecops.public_ip
+}
+
+output "ec2_private_ip" {
+  description = "Private IPv4 address of the DevSecOps EC2 instance"
+  value       = aws_instance.devsecops.private_ip
+}
+
+output "ec2_iam_role_name" {
+  description = "IAM Role attached to the EC2 instance"
+  value       = aws_iam_role.ec2_ssm.name
+}

@@ -6,49 +6,56 @@ El objetivo no es únicamente desplegar infraestructura, sino aprender un flujo 
 
 **entender → implementar → formatear → validar → planificar → aplicar → verificar → documentar → versionar**
 
-> 🚧 Estado actual: **Networking completado**.  
-> ➡️ Próximo bloque: **Compute / EC2**.
+> 🚧 Estado actual: **Networking + Compute / EC2 completados**.  
+> 🔐 La instancia EC2 puede administrarse mediante **AWS Systems Manager Session Manager sin SSH ni puerto 22 abierto**.
 
 ---
 
-## 🎯 Objetivos del proyecto
+# 🎯 Objetivos del proyecto
 
 Este proyecto tiene como objetivos:
 
 - Aprender Terraform de forma práctica.
+- Preparar conceptos importantes para **Terraform Associate**.
 - Construir infraestructura AWS desde cero.
 - Entender las dependencias entre recursos.
 - Aprender arquitectura básica de redes en AWS.
 - Aplicar buenas prácticas de organización.
 - Evitar valores hardcodeados.
-- Utilizar variables, locals y outputs.
+- Utilizar variables, locals, data sources y outputs.
+- Comprender el Terraform State.
 - Validar cada cambio antes de modificar AWS.
 - Verificar la infraestructura mediante AWS CLI.
+- Diagnosticar problemas reales de infraestructura.
 - Versionar Infrastructure as Code mediante Git.
 - Aplicar progresivamente buenas prácticas de seguridad.
+- Evitar SSH cuando existe una alternativa más segura.
+- Automatizar configuración mediante User Data.
 - Evolucionar hacia una plataforma orientada a **DevOps / DevSecOps y CI/CD**.
 
 ---
 
 # 🧰 Tecnologías
 
-Actualmente se utilizan:
-
 | Tecnología | Uso |
 |---|---|
 | Terraform | Infrastructure as Code |
 | AWS | Cloud Provider |
-| AWS CLI | Verificación de infraestructura |
+| AWS EC2 | Compute |
+| AWS IAM | Roles y permisos |
+| AWS Systems Manager | Administración remota segura |
+| AWS CLI | Verificación y diagnóstico |
+| Ubuntu Server 24.04 LTS | Sistema operativo EC2 |
 | Git | Control de versiones |
 | GitHub | Repositorio remoto |
 
-Región AWS utilizada:
+Región AWS:
 
 ```text
 eu-west-1
 ```
 
-Availability Zone utilizada actualmente:
+Availability Zone:
 
 ```text
 eu-west-1a
@@ -70,6 +77,10 @@ terraform-aws-devsecops-platform/
 │
 ├── network.tf
 ├── security.tf
+├── compute.tf
+├── iam.tf
+│
+├── user-data.sh
 │
 ├── outputs.tf
 │
@@ -79,9 +90,21 @@ terraform-aws-devsecops-platform/
 
 Terraform interpreta todos los archivos `.tf` del mismo directorio como una única configuración.
 
-Por tanto, **no es obligatorio tener todos los recursos dentro de `main.tf`**.
+Por tanto, no es obligatorio utilizar un único `main.tf`.
 
-Los archivos se han separado por responsabilidad para facilitar el mantenimiento y permitir que el proyecto pueda crecer de forma ordenada.
+Podemos separar los recursos por responsabilidad:
+
+```text
+network.tf   → Networking
+security.tf  → Security Groups
+compute.tf   → EC2 / Compute
+iam.tf       → IAM
+outputs.tf   → Outputs
+```
+
+El nombre y orden de los archivos **no determina el orden de creación de los recursos**.
+
+Terraform utiliza su **Dependency Graph** para determinar las dependencias.
 
 ---
 
@@ -95,19 +118,19 @@ La configuración se separó en distintos archivos para evitar concentrar todo e
 
 ### `versions.tf`
 
-Contiene los requisitos relacionados con Terraform y los providers utilizados por el proyecto.
+Contiene los requisitos relacionados con Terraform y los providers utilizados.
 
 ### `providers.tf`
 
-Configura el provider de AWS.
+Configura el provider AWS.
 
 ### `variables.tf`
 
-Declara las variables de entrada utilizadas por nuestra infraestructura.
+Declara las variables de entrada.
 
 ### `terraform.tfvars`
 
-Contiene los valores concretos utilizados en nuestro entorno.
+Proporciona valores para nuestras variables.
 
 ### `locals.tf`
 
@@ -115,68 +138,54 @@ Contiene valores internos reutilizables.
 
 ### `network.tf`
 
-Contiene actualmente los recursos relacionados con networking.
+Contiene los recursos de networking.
 
 ### `security.tf`
 
-Contiene los recursos relacionados con seguridad.
+Contiene los Security Groups.
+
+### `compute.tf`
+
+Contiene la instancia EC2 y la búsqueda de la AMI.
+
+### `iam.tf`
+
+Contiene IAM Role, Policy Attachment e Instance Profile.
 
 ### `outputs.tf`
 
-Expone información útil de la infraestructura desplegada.
+Expone información útil de la infraestructura.
 
----
+### `user-data.sh`
+
+Contiene el script ejecutado automáticamente durante el primer arranque de la instancia.
 
 ## 🧠 ¿Qué aprendimos?
 
 Terraform carga conjuntamente todos los archivos `.tf` existentes en el mismo directorio.
 
-Por ejemplo:
-
 ```text
 network.tf
 security.tf
+compute.tf
+iam.tf
 outputs.tf
+        │
+        ▼
+UNA configuración Terraform
 ```
 
-no son tres proyectos diferentes.
+El orden de los archivos no determina el orden de creación.
 
-Terraform los interpreta como:
-
-```text
-Una única configuración Terraform
-```
-
-Esto permite organizar el código por responsabilidad sin modificar el comportamiento de la infraestructura.
-
----
-
-## ✅ Al finalizar este punto
-
-Utilizamos el flujo básico:
-
-```bash
-terraform init
-terraform fmt
-terraform validate
-terraform plan
-```
-
-Antes de ejecutar cualquier cambio sobre AWS, revisamos siempre el resultado de:
-
-```bash
-terraform plan
-```
+Terraform determina el orden mediante las relaciones entre recursos.
 
 ---
 
 # 02 — Networking
 
-La primera infraestructura construida ha sido la capa de red sobre la que posteriormente desplegaremos Compute, IAM y el resto de servicios.
+La primera infraestructura construida fue la capa de red.
 
----
-
-# 🏗️ Arquitectura actual
+## 🏗️ Arquitectura de red
 
 ```text
                               INTERNET
@@ -189,11 +198,9 @@ La primera infraestructura construida ha sido la capa de red sobre la que poster
                                   │
                  ┌────────────────┴────────────────┐
                  │                                 │
-                 │                                 │
         PUBLIC SUBNET                       PRIVATE SUBNET
          10.0.1.0/24                         10.0.2.0/24
          eu-west-1a                           eu-west-1a
-                 │                                 │
                  │                                 │
       Public Route Table                 Private Route Table
                  │                                 │
@@ -204,17 +211,13 @@ La primera infraestructura construida ha sido la capa de red sobre la que poster
 
 ---
 
-# 02.1 — VPC
-
-Se creó la red principal del proyecto utilizando una VPC.
+## 02.1 — VPC
 
 CIDR:
 
 ```text
 10.0.0.0/16
 ```
-
-Configuración:
 
 ```hcl
 resource "aws_vpc" "main" {
@@ -230,86 +233,33 @@ resource "aws_vpc" "main" {
 }
 ```
 
----
-
-## 🧠 ¿Qué aprendimos?
+### 🧠 ¿Qué aprendimos?
 
 La VPC representa nuestra red privada dentro de AWS.
 
-El CIDR:
-
-```text
-10.0.0.0/16
-```
-
-nos proporciona un espacio amplio que posteriormente podemos dividir en subredes.
-
-También aprendimos a evitar IDs hardcodeados.
-
-En lugar de escribir manualmente el ID de una VPC:
+En lugar de hardcodear IDs:
 
 ```text
 vpc-xxxxxxxx
 ```
 
-otros recursos utilizan:
+utilizamos referencias:
 
 ```hcl
 aws_vpc.main.id
 ```
 
-Terraform puede construir así automáticamente las dependencias entre recursos.
-
-Por ejemplo:
-
-```text
-VPC
- │
- ├── Subnet
- │
- ├── Internet Gateway
- │
- ├── Route Tables
- │
- └── Security Group
-```
+Esto permite a Terraform construir dependencias implícitas.
 
 ---
 
-## ✅ Al finalizar este punto
-
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-terraform apply
-```
-
-Y verificamos que la VPC existía realmente en AWS.
-
-También utilizamos AWS CLI para comprobar la infraestructura directamente.
-
----
-
-# 02.2 — Public Subnet
-
-Se creó una subnet destinada a recursos que puedan necesitar conectividad pública.
+## 02.2 — Public Subnet
 
 CIDR:
 
 ```text
 10.0.1.0/24
 ```
-
-Availability Zone:
-
-```text
-eu-west-1a
-```
-
-Terraform:
 
 ```hcl
 resource "aws_subnet" "public" {
@@ -325,87 +275,23 @@ resource "aws_subnet" "public" {
 }
 ```
 
----
+### 🧠 ¿Qué aprendimos?
 
-## 🧠 ¿Qué aprendimos?
+Una subnet no es pública por llamarse `public`.
 
-Una subnet **no es pública simplemente porque se llame `public`**.
+Necesita routing adecuado hacia un Internet Gateway.
 
-El nombre:
-
-```text
-public-subnet
-```
-
-es únicamente una etiqueta.
-
-Para que una subnet tenga conectividad directa hacia Internet necesitamos, entre otras cosas:
-
-```text
-Subnet
-   │
-   ▼
-Route Table
-   │
-   ▼
-0.0.0.0/0
-   │
-   ▼
-Internet Gateway
-```
-
-También aprendimos que un `/24` contiene:
-
-```text
-256 direcciones IPv4
-```
-
-AWS reserva 5 direcciones en cada subnet.
-
-Por tanto quedan:
-
-```text
-251 direcciones utilizables
-```
+Un `/24` contiene 256 direcciones IPv4 y AWS reserva cinco direcciones por subnet, por lo que quedan 251 utilizables.
 
 ---
 
-## ✅ Al finalizar este punto
-
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-terraform apply
-```
-
-Después verificamos que:
-
-- La subnet pertenecía a nuestra VPC.
-- Tenía el CIDR correcto.
-- Estaba en `eu-west-1a`.
-
----
-
-# 02.3 — Private Subnet
-
-También se creó una subnet privada.
+## 02.3 — Private Subnet
 
 CIDR:
 
 ```text
 10.0.2.0/24
 ```
-
-Availability Zone:
-
-```text
-eu-west-1a
-```
-
-Terraform:
 
 ```hcl
 resource "aws_subnet" "private" {
@@ -421,56 +307,19 @@ resource "aws_subnet" "private" {
 }
 ```
 
----
+### 🧠 ¿Qué aprendimos?
 
-## 🧠 ¿Qué aprendimos?
+La diferencia fundamental entre nuestras subnets está en el routing.
 
-La diferencia entre nuestras subnets no depende principalmente de su nombre.
-
-La diferencia fundamental estará en el **routing**.
-
-La subnet privada actualmente NO dispone de:
+Actualmente la subnet privada no dispone de:
 
 ```text
-0.0.0.0/0 → Internet Gateway
-```
-
-Su Route Table solamente contiene la ruta interna de la VPC.
-
-En el futuro, si necesitamos que recursos privados puedan salir a Internet sin quedar directamente expuestos, estudiaremos la solución apropiada, como NAT u otras alternativas según la arquitectura.
-
----
-
-## ✅ Al finalizar este punto
-
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-terraform apply
-```
-
-Y comprobamos que teníamos:
-
-```text
-VPC 10.0.0.0/16
-│
-├── Public Subnet
-│   └── 10.0.1.0/24
-│
-└── Private Subnet
-    └── 10.0.2.0/24
+0.0.0.0/0 → IGW
 ```
 
 ---
 
-# 02.4 — Internet Gateway
-
-Creamos un Internet Gateway asociado a nuestra VPC.
-
-Terraform:
+## 02.4 — Internet Gateway
 
 ```hcl
 resource "aws_internet_gateway" "main" {
@@ -483,56 +332,25 @@ resource "aws_internet_gateway" "main" {
 }
 ```
 
----
+### 🧠 ¿Qué aprendimos?
 
-## 🧠 ¿Qué aprendimos?
+Crear un Internet Gateway no convierte automáticamente una subnet en pública.
 
-El Internet Gateway proporciona un punto de conexión entre nuestra VPC e Internet.
-
-Pero crear un IGW **no convierte automáticamente nuestras subnets en públicas**.
-
-Necesitamos también configurar correctamente las rutas.
-
-El flujo será:
+Necesitamos:
 
 ```text
-Internet
-   │
-   ▼
-Internet Gateway
-   │
-   ▼
-VPC
-   │
-   ▼
+Subnet
+   ↓
 Route Table
-   │
-   ▼
-Public Subnet
+   ↓
+0.0.0.0/0
+   ↓
+Internet Gateway
 ```
 
 ---
 
-## ✅ Al finalizar este punto
-
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-terraform apply
-```
-
-Y verificamos que el Internet Gateway estaba asociado correctamente a nuestra VPC.
-
----
-
-# 02.5 — Public Route Table
-
-Creamos una Route Table específica para la subnet pública.
-
-Terraform:
+## 02.5 — Public Route Table
 
 ```hcl
 resource "aws_route_table" "public" {
@@ -545,66 +363,21 @@ resource "aws_route_table" "public" {
 }
 ```
 
-AWS añade automáticamente la ruta local correspondiente a nuestra VPC:
+AWS añade automáticamente:
 
 ```text
 10.0.0.0/16 → local
 ```
 
----
+### 🧠 ¿Qué aprendimos?
 
-## 🧠 ¿Qué aprendimos?
+La ruta `local` permite routing interno dentro de la VPC.
 
-La ruta:
-
-```text
-10.0.0.0/16 → local
-```
-
-permite el routing interno dentro de la VPC.
-
-Por ejemplo:
-
-```text
-10.0.1.x
-    │
-    ▼
-10.0.2.x
-```
-
-puede ser enrutado internamente por la VPC.
-
-Esto no significa que cualquier comunicación vaya a estar permitida automáticamente, ya que también intervienen controles como:
-
-- Security Groups.
-- Network ACLs.
+El routing no significa automáticamente que el tráfico esté permitido. También intervienen Security Groups y Network ACLs.
 
 ---
 
-## ✅ Al finalizar este punto
-
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-terraform apply
-```
-
-Y comprobamos la tabla creada antes de añadirle acceso hacia Internet.
-
----
-
-# 02.6 — Public Internet Route
-
-Añadimos una ruta hacia Internet:
-
-```text
-0.0.0.0/0 → Internet Gateway
-```
-
-Terraform:
+## 02.6 — Public Internet Route
 
 ```hcl
 resource "aws_route" "public_internet" {
@@ -614,57 +387,20 @@ resource "aws_route" "public_internet" {
 }
 ```
 
----
-
-## 🧠 ¿Qué aprendimos?
-
-`0.0.0.0/0` representa cualquier destino IPv4 que no coincida con una ruta más específica.
-
-Nuestra tabla queda conceptualmente:
-
-```text
-DESTINATION       TARGET
-
-10.0.0.0/16       local
-0.0.0.0/0         Internet Gateway
-```
-
-Por tanto:
-
-```text
-Tráfico interno
-      │
-      ▼
-    local
-
-Tráfico externo
-      │
-      ▼
-Internet Gateway
-```
-
----
-
-## ✅ Al finalizar este punto
-
-Aplicamos los cambios y verificamos mediante AWS CLI que:
+Resultado:
 
 ```text
 10.0.0.0/16 → local
 0.0.0.0/0   → IGW
 ```
 
-estaban presentes en la Route Table pública.
+### 🧠 ¿Qué aprendimos?
+
+`0.0.0.0/0` representa cualquier destino IPv4 que no coincida con una ruta más específica.
 
 ---
 
-# 02.7 — Public Route Table Association
-
-Crear una Route Table no es suficiente.
-
-Tenemos que asociarla a la subnet que debe utilizarla.
-
-Terraform:
+## 02.7 — Public Route Table Association
 
 ```hcl
 resource "aws_route_table_association" "public" {
@@ -673,48 +409,15 @@ resource "aws_route_table_association" "public" {
 }
 ```
 
----
+### 🧠 ¿Qué aprendimos?
 
-## 🧠 ¿Qué aprendimos?
+Crear una Route Table no es suficiente.
 
-La relación completa es:
-
-```text
-Public Subnet
-      │
-      ▼
-Public Route Table
-      │
-      ▼
-0.0.0.0/0
-      │
-      ▼
-Internet Gateway
-      │
-      ▼
-Internet
-```
-
-La asociación determina qué tabla de rutas utiliza la subnet.
+Debemos asociarla con la subnet que debe utilizarla.
 
 ---
 
-## ✅ Al finalizar este punto
-
-Verificamos mediante AWS CLI:
-
-- La asociación.
-- La subnet asociada.
-- La Route Table utilizada.
-- Las rutas existentes.
-
----
-
-# 02.8 — Private Route Table
-
-Creamos una Route Table independiente para la subnet privada.
-
-Terraform:
+## 02.8 — Private Route Table
 
 ```hcl
 resource "aws_route_table" "private" {
@@ -727,52 +430,19 @@ resource "aws_route_table" "private" {
 }
 ```
 
-Actualmente contiene únicamente:
+Actualmente:
 
 ```text
 10.0.0.0/16 → local
 ```
 
----
+### 🧠 ¿Qué aprendimos?
 
-## 🧠 ¿Qué aprendimos?
-
-Separar las Route Tables nos permite aplicar políticas de routing diferentes.
-
-Tenemos:
-
-```text
-PUBLIC
-10.0.0.0/16 → local
-0.0.0.0/0   → IGW
-```
-
-frente a:
-
-```text
-PRIVATE
-10.0.0.0/16 → local
-```
-
-La subnet privada **no tiene una ruta directa al Internet Gateway**.
+Podemos utilizar diferentes Route Tables para aplicar comportamientos diferentes a cada subnet.
 
 ---
 
-## ✅ Al finalizar este punto
-
-Aplicamos la configuración y verificamos que la tabla privada no tenía accidentalmente:
-
-```text
-0.0.0.0/0 → IGW
-```
-
----
-
-# 02.9 — Private Route Table Association
-
-Asociamos la subnet privada con su propia Route Table.
-
-Terraform:
+## 02.9 — Private Route Table Association
 
 ```hcl
 resource "aws_route_table_association" "private" {
@@ -781,99 +451,60 @@ resource "aws_route_table_association" "private" {
 }
 ```
 
----
-
-## 🧠 ¿Qué aprendimos?
-
-Ahora ambas subnets tienen explícitamente su propia tabla:
+Resultado:
 
 ```text
 VPC
 │
 ├── Public Subnet
-│       │
-│       ▼
+│       ↓
 │   Public RT
-│       │
 │       └── 0.0.0.0/0 → IGW
 │
 └── Private Subnet
-        │
-        ▼
+        ↓
     Private RT
-        │
         └── local only
 ```
 
 ---
 
-## ✅ Al finalizar este punto
+## 02.10 — Main Route Table
 
-AWS CLI confirmó que:
+Durante las verificaciones encontramos una tercera Route Table que no habíamos definido explícitamente.
 
-```text
-Private Route Table
-├── 10.0.0.0/16 → local
-└── Private Subnet asociada
-```
+AWS crea automáticamente una **Main Route Table** al crear una VPC.
 
-y que no existía ninguna salida directa hacia el Internet Gateway.
+### 🧠 ¿Qué aprendimos?
 
----
+No todos los recursos que aparecen en AWS tienen que haber sido creados explícitamente mediante un bloque `resource`.
 
-# 02.10 — Main Route Table creada por AWS
-
-Durante las verificaciones encontramos una tercera Route Table que no habíamos definido explícitamente con Terraform.
-
-Esto es normal.
-
-AWS crea automáticamente una **Main Route Table** cuando se crea una VPC.
+AWS puede crear recursos asociados automáticamente.
 
 ---
 
-## 🧠 ¿Qué aprendimos?
+## 02.11 — Security Group
 
-Encontrar un recurso en AWS que no recordamos haber definido no significa necesariamente que Terraform haya hecho algo incorrectamente.
+Creamos un Security Group para nuestra instancia.
 
-Algunos recursos forman parte del comportamiento automático de AWS.
+Actualmente no permitimos tráfico entrante.
 
-Nuestras subnets están asociadas explícitamente a:
-
-```text
-Public Subnet
-      ↓
-Public Route Table
-```
-
-y:
-
-```text
-Private Subnet
-      ↓
-Private Route Table
-```
-
-por lo que no dependen de la Main Route Table para su routing actual.
-
----
-
-## ✅ Al finalizar este punto
-
-Consultamos las Route Tables de toda la VPC mediante AWS CLI y verificamos qué tabla estaba asociada a cada subnet.
-
----
-
-# 02.11 — Security Group
-
-Creamos un Security Group base asociado a nuestra VPC.
-
-Terraform:
+Sí permitimos tráfico saliente:
 
 ```hcl
 resource "aws_security_group" "terraform_lab" {
   name        = "${local.name_prefix}-sg"
   description = "security group for terraform learning project"
   vpc_id      = aws_vpc.main.id
+
+  egress {
+    description = "allow all outbound traffic"
+
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   tags = {
     Name    = "${local.name_prefix}-sg"
@@ -882,102 +513,35 @@ resource "aws_security_group" "terraform_lab" {
 }
 ```
 
-Todavía no hemos añadido las reglas definitivas.
+### 🧠 ¿Qué aprendimos?
 
-Las iremos incorporando cuando tengamos recursos que realmente necesiten tráfico específico.
+Un Security Group pertenece a una VPC y posteriormente puede asociarse a recursos como EC2.
 
----
+`protocol = "-1"` representa todos los protocolos.
 
-## 🧠 ¿Qué aprendimos?
-
-Un Security Group pertenece a una:
+El Security Group mantiene:
 
 ```text
-VPC
+Ingress → ninguno
+Egress  → permitido
 ```
 
-No pertenece directamente a una subnet.
+Esto nos permite administrar EC2 mediante SSM sin abrir SSH.
 
-Posteriormente podremos asociarlo a recursos como EC2.
-
-También aprendimos algo muy importante sobre Terraform.
-
-Al modificar determinados atributos de un recurso Terraform puede indicar:
+También diferenciamos:
 
 ```text
--/+
+Security Group → stateful
+Network ACL    → stateless
 ```
-
-Esto significa:
-
-```text
-destroy
-   +
-create replacement
-```
-
-Es decir, Terraform necesita sustituir el recurso.
-
-Esto nos enseñó que **no debemos ejecutar `terraform apply` sin revisar previamente el plan**.
-
----
-
-## ⚠️ Lección importante
-
-Si vemos:
-
-```text
--/+
-```
-
-o:
-
-```text
-Plan: X to add, X to change, X to destroy
-```
-
-y no esperábamos destrucciones:
-
-**paramos y revisamos el plan antes de aplicar.**
-
----
-
-## ✅ Al finalizar este punto
-
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-```
-
-Revisamos el reemplazo antes de aceptarlo y posteriormente comprobamos el nuevo Security Group.
 
 ---
 
 # 03 — Variables y reutilización
 
-Una vez construida la red comenzamos a refactorizar el código.
+Las variables permiten parametrizar nuestra infraestructura.
 
-El objetivo era evitar valores repetidos y hardcodeados.
-
----
-
-# 03.1 — variables.tf
-
-Las variables definen las entradas que necesita nuestra configuración.
-
-Ejemplo:
-
-```hcl
-variable "vpc_cidr" {
-  description = "CIDR block for the VPC"
-  type        = string
-}
-```
-
-Actualmente tenemos variables como:
+Actualmente utilizamos:
 
 ```text
 project_name
@@ -985,61 +549,40 @@ vpc_cidr
 public_subnet_cidr
 private_subnet_cidr
 availability_zone
+instance_type
 ```
 
----
+Ejemplo:
+
+```hcl
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+}
+```
 
 ## 🧠 ¿Qué aprendimos?
 
-Una variable puede entenderse como:
+Una variable puede obtener su valor desde diferentes fuentes.
+
+Entre ellas:
 
 ```text
-¿Qué dato necesita mi infraestructura?
+default
+terraform.tfvars
+*.auto.tfvars
+-var
+-var-file
+TF_VAR_...
 ```
 
-Por ejemplo:
-
-```hcl
-variable "vpc_cidr"
-```
-
-declara que necesitamos un CIDR.
-
-Después podemos utilizar:
-
-```hcl
-var.vpc_cidr
-```
-
-dentro de nuestros recursos.
+Este punto es especialmente importante para **Terraform Associate**.
 
 ---
 
-## ✅ Al finalizar este punto
+## 03.1 — terraform.tfvars
 
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-```
-
-Terraform respondió:
-
-```text
-No changes. Your infrastructure matches the configuration.
-```
-
-Esto fue importante porque demostramos que podemos **refactorizar el código sin modificar los recursos reales de AWS**.
-
----
-
-# 03.2 — terraform.tfvars
-
-`terraform.tfvars` proporciona valores concretos para nuestras variables.
-
-Actualmente utilizamos valores como:
+Actualmente contiene valores similares a:
 
 ```hcl
 project_name = "terraform-aws-devsecops-platform"
@@ -1049,96 +592,25 @@ public_subnet_cidr  = "10.0.1.0/24"
 private_subnet_cidr = "10.0.2.0/24"
 
 availability_zone = "eu-west-1a"
+
+instance_type = "t2.micro"
 ```
 
 Conceptualmente:
 
 ```text
-terraform.tfvars
-       │
-       ▼
-variables.tf
-       │
-       ▼
-var.xxx
-       │
-       ▼
-Terraform Resources
-```
-
----
-
-## 🧠 ¿Qué aprendimos?
-
-Una forma sencilla de recordarlo:
-
-```text
 variables.tf
     ↓
 ¿Qué necesito?
-```
 
-```text
 terraform.tfvars
     ↓
-¿Qué valor voy a utilizar?
-```
-
-Por ejemplo:
-
-```text
-variables.tf
-    ↓
-Necesito vpc_cidr
-```
-
-y:
-
-```text
-terraform.tfvars
-    ↓
-vpc_cidr = "10.0.0.0/16"
+¿Qué valor utilizo?
 ```
 
 ---
 
-## 🔐 Seguridad
-
-Actualmente `terraform.tfvars` está ignorado mediante `.gitignore`.
-
-Esto evita que configuración local termine accidentalmente en Git.
-
-Más adelante podemos proporcionar:
-
-```text
-terraform.tfvars.example
-```
-
-para documentar qué variables necesita el proyecto sin publicar valores que no queramos versionar.
-
----
-
-## ✅ Al finalizar este punto
-
-Volvimos a ejecutar:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-```
-
-Resultado:
-
-```text
-No changes. Your infrastructure matches the configuration.
-```
-
----
-
-# 03.3 — locals.tf
-
-Creamos un valor local para reutilizar el prefijo de nombres.
+## 03.2 — Locals
 
 ```hcl
 locals {
@@ -1146,79 +618,29 @@ locals {
 }
 ```
 
-Podemos utilizarlo así:
-
-```hcl
-Name = "${local.name_prefix}-vpc"
-```
-
-o:
-
-```hcl
-Name = "${local.name_prefix}-public-subnet"
-```
-
----
-
-## 🧠 ¿Qué aprendimos?
-
-La diferencia principal entre variables y locals:
+### 🧠 ¿Qué aprendimos?
 
 ```text
 var.xxx
-   │
-   └── entrada configurable
+   ↓
+Entrada configurable
 ```
 
 frente a:
 
 ```text
 local.xxx
-   │
-   └── valor interno/reutilizable
-```
-
-Ejemplo:
-
-```hcl
-var.vpc_cidr
-```
-
-puede cambiar dependiendo del entorno.
-
-Mientras:
-
-```hcl
-local.name_prefix
-```
-
-lo utilizamos internamente para evitar repetir nombres.
-
----
-
-## ✅ Al finalizar este punto
-
-Ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-```
-
-Terraform volvió a indicar:
-
-```text
-No changes. Your infrastructure matches the configuration.
+   ↓
+Valor interno reutilizable
 ```
 
 ---
 
 # 04 — Outputs
 
-Creamos `outputs.tf` para exponer información útil después de desplegar la infraestructura.
+Utilizamos outputs para obtener información útil después del despliegue.
 
-Actualmente mostramos:
+Entre otros:
 
 ```text
 vpc_id
@@ -1228,102 +650,1073 @@ internet_gateway_id
 public_route_table_id
 private_route_table_id
 security_group_id
+ubuntu_ami_id
+ec2_instance_id
+ec2_public_ip
+ec2_private_ip
+ec2_iam_role_name
 ```
 
 Ejemplo:
 
 ```hcl
-output "vpc_id" {
-  description = "ID of the VPC"
-  value       = aws_vpc.main.id
+output "ec2_instance_id" {
+  description = "ID of the DevSecOps EC2 instance"
+  value       = aws_instance.devsecops.id
 }
 ```
 
----
-
 ## 🧠 ¿Qué aprendimos?
 
-Los outputs pueden entenderse como:
+Los outputs permiten exponer valores de nuestra infraestructura.
 
-```text
-INPUTS                      OUTPUTS
-
-terraform.tfvars               ▲
-      │                        │
-      ▼                        │
-variables.tf                   │
-      │                        │
-      ▼                        │
-Terraform ──────── AWS ────────┘
-```
-
-Las variables introducen información.
-
-Los outputs extraen información útil de la infraestructura resultante.
-
----
-
-## Consultar outputs
-
-Todos:
+Podemos consultarlos mediante:
 
 ```bash
 terraform output
 ```
 
-Uno concreto:
+o:
 
 ```bash
-terraform output vpc_id
+terraform output ec2_instance_id
 ```
 
-Para utilizarlo fácilmente desde scripts o CI/CD:
+y obtener solamente el valor:
 
 ```bash
-terraform output -raw vpc_id
+terraform output -raw ec2_instance_id
 ```
-
-Esto será especialmente útil posteriormente para automatizaciones.
 
 ---
 
-## ✅ Al finalizar este punto
+# 05 — Compute / EC2
+
+Una vez completado Networking desplegamos nuestra primera carga de trabajo.
+
+La arquitectura evolucionó hasta:
+
+```text
+                         INTERNET
+                             │
+                             ▼
+                    Internet Gateway
+                             │
+                             ▼
+                    VPC 10.0.0.0/16
+                             │
+               ┌─────────────┴─────────────┐
+               │                           │
+        PUBLIC SUBNET                PRIVATE SUBNET
+         10.0.1.0/24                  10.0.2.0/24
+               │
+               ▼
+             EC2
+        Ubuntu 24.04 LTS
+          t2.micro
+               │
+        Security Group
+      ingress: ninguno
+      egress: permitido
+               │
+               ▼
+         IAM Instance Profile
+               │
+               ▼
+           IAM Role
+               │
+               ▼
+ AmazonSSMManagedInstanceCore
+               │
+               ▼
+      AWS Systems Manager
+               │
+               ▼
+        Session Manager
+```
+
+---
+
+## 05.1 — AMI mediante Data Source
+
+No hardcodeamos directamente una AMI.
+
+Utilizamos:
+
+```hcl
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  owners = ["099720109477"]
+
+  filter {
+    name = "name"
+
+    values = [
+      "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
+    ]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Diferenciamos:
+
+```text
+resource
+   ↓
+Crear y administrar infraestructura
+```
+
+de:
+
+```text
+data
+   ↓
+Consultar información existente
+```
+
+Terraform no crea la AMI.
+
+Consulta AWS para encontrar una AMI que cumpla nuestros filtros.
+
+Además:
+
+```hcl
+most_recent = true
+```
+
+significa que el resultado puede cambiar cuando Canonical publique una AMI más reciente.
+
+Por tanto, un Data Source **no tiene por qué devolver siempre el mismo valor**.
+
+---
+
+## 05.2 — `terraform validate` vs `terraform plan`
+
+Durante la configuración de la AMI introdujimos accidentalmente un filtro incorrecto.
+
+Terraform aceptó:
+
+```bash
+terraform validate
+```
+
+pero:
+
+```bash
+terraform plan
+```
+
+falló cuando AWS recibió el filtro.
+
+### 🧠 ¿Qué aprendimos?
+
+`terraform validate` comprueba que la configuración Terraform sea válida a nivel de sintaxis y estructura que Terraform/provider puede validar localmente.
+
+No garantiza que todos los valores sean aceptados posteriormente por la API remota.
+
+Por eso:
+
+```text
+validate correcto
+```
+
+no garantiza:
+
+```text
+plan correcto
+```
+
+ni:
+
+```text
+apply correcto
+```
+
+---
+
+## 05.3 — EC2
+
+Creamos nuestra instancia:
+
+```hcl
+resource "aws_instance" "devsecops" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+
+  subnet_id                   = aws_subnet.public.id
+  associate_public_ip_address = true
+
+  vpc_security_group_ids = [
+    aws_security_group.terraform_lab.id
+  ]
+
+  iam_instance_profile = aws_iam_instance_profile.ec2_ssm.name
+
+  user_data = file("${path.module}/user-data.sh")
+
+  tags = {
+    Name    = "${local.name_prefix}-ec2"
+    Project = var.project_name
+  }
+}
+```
+
+### 🧠 ¿Qué aprendimos?
+
+La instancia utiliza referencias a otros recursos:
+
+```text
+data.aws_ami.ubuntu.id
+var.instance_type
+aws_subnet.public.id
+aws_security_group.terraform_lab.id
+aws_iam_instance_profile.ec2_ssm.name
+```
+
+Estas referencias permiten a Terraform construir su Dependency Graph.
+
+Por ejemplo:
+
+```text
+VPC
+ ↓
+Subnet
+ ↓
+EC2
+```
+
+y:
+
+```text
+IAM Role
+ ↓
+Instance Profile
+ ↓
+EC2
+```
+
+No necesitamos indicar manualmente el orden de creación.
+
+---
+
+## 05.4 — `(known after apply)`
+
+Durante `terraform plan` aparecieron valores como:
+
+```text
+(known after apply)
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Esto significa que Terraform conoce el atributo pero no puede determinar todavía su valor definitivo.
+
+Por ejemplo:
+
+```text
+EC2 ID
+Public IP
+Private IP
+```
+
+pueden ser asignados por AWS durante la creación.
+
+Por tanto:
+
+```text
+(known after apply)
+```
+
+no significa error.
+
+Significa que Terraform conocerá el valor después de crear o modificar el recurso.
+
+---
+
+## 05.5 — IAM Role para EC2
+
+Creamos un IAM Role:
+
+```hcl
+resource "aws_iam_role" "ec2_ssm" {
+  name = "${local.name_prefix}-ec2-ssm-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+
+  tags = {
+    Name    = "${local.name_prefix}-ec2-ssm-role"
+    Project = var.project_name
+  }
+}
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Diferenciamos dos conceptos:
+
+```text
+Trust Policy
+     ↓
+¿QUIÉN puede asumir el Role?
+```
+
+y:
+
+```text
+Permissions Policy
+     ↓
+¿QUÉ puede hacer el Role?
+```
+
+Nuestra Trust Policy permite:
+
+```text
+EC2
+ ↓
+sts:AssumeRole
+ ↓
+IAM Role
+```
+
+---
+
+## 05.6 — `jsonencode()`
+
+La Trust Policy se define utilizando:
+
+```hcl
+jsonencode(...)
+```
+
+### 🧠 ¿Qué aprendimos?
+
+`jsonencode()` transforma:
+
+```text
+Terraform / HCL value
+        ↓
+JSON string
+```
+
+Mientras que:
+
+```hcl
+jsondecode()
+```
+
+realiza conceptualmente lo contrario:
+
+```text
+JSON
+ ↓
+Terraform value
+```
+
+---
+
+## 05.7 — AmazonSSMManagedInstanceCore
+
+Adjuntamos la política administrada de AWS:
+
+```hcl
+resource "aws_iam_role_policy_attachment" "ssm_core" {
+  role       = aws_iam_role.ec2_ssm.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+```
+
+### 🧠 ¿Qué aprendimos?
+
+El IAM Role por sí solo no proporciona automáticamente los permisos necesarios para SSM.
+
+Necesitamos asociar permisos.
+
+```text
+EC2
+ ↓
+IAM Role
+ ↓
+AmazonSSMManagedInstanceCore
+ ↓
+Permisos necesarios para Systems Manager
+```
+
+---
+
+## 05.8 — IAM Instance Profile
+
+Creamos:
+
+```hcl
+resource "aws_iam_instance_profile" "ec2_ssm" {
+  name = "${local.name_prefix}-ec2-ssm-profile"
+  role = aws_iam_role.ec2_ssm.name
+
+  tags = {
+    Name    = "${local.name_prefix}-ec2-ssm-profile"
+    Project = var.project_name
+  }
+}
+```
+
+Y lo asociamos a EC2:
+
+```hcl
+iam_instance_profile = aws_iam_instance_profile.ec2_ssm.name
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Para asociar el Role con EC2 utilizamos un **Instance Profile**.
+
+```text
+EC2
+ ↓
+Instance Profile
+ ↓
+IAM Role
+ ↓
+Permissions
+```
+
+Terraform detecta una dependencia implícita gracias a la referencia al Instance Profile.
+
+---
+
+## 05.9 — User Data
+
+Creamos:
+
+```text
+user-data.sh
+```
+
+con:
+
+```bash
+#!/bin/bash
+
+set -e
+
+apt-get update -y
+
+echo "Terraform DevSecOps Platform" > /home/ubuntu/terraform-lab.txt
+echo "EC2 configured automatically using Terraform User Data" >> /home/ubuntu/terraform-lab.txt
+
+chown ubuntu:ubuntu /home/ubuntu/terraform-lab.txt
+```
+
+Y Terraform carga el archivo mediante:
+
+```hcl
+user_data = file("${path.module}/user-data.sh")
+```
+
+### 🧠 ¿Qué aprendimos?
+
+La función:
+
+```hcl
+file()
+```
+
+lee el contenido de un archivo.
+
+Mientras:
+
+```hcl
+path.module
+```
+
+representa el directorio del módulo actual.
+
+Esto evita depender de una ruta absoluta de nuestro ordenador.
+
+También aprendimos que User Data permite automatizar la configuración inicial de una instancia.
+
+---
+
+## 05.10 — Primera creación de Compute
+
+Terraform mostró:
+
+```text
+Plan: 4 to add, 0 to change, 0 to destroy.
+```
+
+Después:
+
+```text
+Apply complete!
+Resources: 4 added, 0 changed, 0 destroyed.
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Antes de aplicar revisamos siempre:
+
+```text
+to add
+to change
+to destroy
+```
+
+Los símbolos principales de Terraform Plan son:
+
+```text
++     create
+~     update in-place
+-     destroy
+-/+   destroy and create replacement
+```
+
+Un:
+
+```text
+~ update in-place
+```
+
+significa que Terraform puede modificar el recurso existente sin sustituirlo.
+
+Mientras:
+
+```text
+-/+
+```
+
+indica que el recurso necesita ser reemplazado.
+
+---
+
+## 05.11 — Verificación de EC2
+
+AWS CLI confirmó:
+
+```text
+Instance Type → t2.micro
+State         → running
+Subnet        → Public Subnet
+VPC           → nuestra VPC
+Public IPv4   → asignada
+Private IPv4  → asignada
+IAM Profile   → terraform-lab-ec2-ssm-profile
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Una subnet pública por sí sola no garantiza que una EC2 tenga conectividad pública.
+
+Debemos considerar conjuntamente:
+
+```text
+EC2
+ │
+ ├── Public IP
+ ├── Public Subnet
+ ├── Route Table
+ ├── Internet Gateway
+ ├── Security Group
+ └── Network ACL
+```
+
+---
+
+## 05.12 — Primer problema real: SSM Offline
+
+Después del despliegue comprobamos:
+
+```bash
+aws ssm describe-instance-information
+```
+
+pero la instancia no aparecía correctamente registrada.
+
+Investigamos paso a paso:
+
+```text
+IAM Policy        ✅
+Instance Profile  ✅
+SSM Agent         ✅
+Public IP         ✅
+Route Table       ✅
+Internet Gateway  ✅
+Network ACL       ✅
+Security Group    ❌
+```
+
+El Security Group tenía:
+
+```text
+Ingress: []
+Egress:  []
+```
+
+### 🧠 ¿Qué aprendimos?
+
+No necesitábamos abrir tráfico entrante para SSM.
+
+El problema era el tráfico **saliente**.
+
+SSM Agent necesita iniciar conexiones hacia los servicios de AWS.
+
+Sin egress:
+
+```text
+EC2
+ │
+ X
+ │
+ ▼
+SSM Endpoint
+```
+
+el agente no podía comunicarse con Systems Manager.
+
+---
+
+## 05.13 — Diagnóstico mediante logs
+
+Los logs mostraron errores del SSM Agent al intentar comunicarse con:
+
+```text
+https://ssm.eu-west-1.amazonaws.com/
+```
+
+y la conexión terminaba en timeout.
+
+También observamos problemas durante:
+
+```bash
+apt-get update
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Los errores permitieron distinguir entre diferentes posibles causas.
+
+- DNS funcionaba porque el endpoint podía resolverse.
+- SSM Agent estaba instalado y ejecutándose.
+- IAM estaba correctamente asociado.
+- El problema se encontraba en la conectividad de red.
+
+Esto demuestra la importancia de diagnosticar por capas:
+
+```text
+Aplicación / Agent
+        ↓
+IAM
+        ↓
+DNS
+        ↓
+Security Group
+        ↓
+NACL
+        ↓
+Route Table
+        ↓
+Internet Gateway
+```
+
+---
+
+## 05.14 — Corrección del Security Group
+
+Añadimos:
+
+```hcl
+egress {
+  description = "allow all outbound traffic"
+
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+```
+
+Terraform mostró:
+
+```text
+~ update in-place
+```
+
+y:
+
+```text
+Plan: 0 to add, 1 to change, 0 to destroy.
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Terraform pudo modificar el Security Group sin destruirlo.
+
+Esto es un:
+
+```text
+update in-place
+```
+
+y no un:
+
+```text
+replacement
+```
+
+---
+
+## 05.15 — Security Group vs Network ACL
+
+Durante el diagnóstico también comprobamos la Network ACL.
+
+La NACL permitía el tráfico necesario.
+
+### 🧠 ¿Qué aprendimos?
+
+Una diferencia importante:
+
+```text
+Security Group
+   ↓
+Stateful
+```
+
+frente a:
+
+```text
+Network ACL
+   ↓
+Stateless
+```
+
+Los Security Groups mantienen el estado de las conexiones.
+
+Las Network ACL evalúan tráfico de entrada y salida de forma independiente.
+
+---
+
+## 05.16 — AWS Systems Manager Online
+
+Después de corregir la conectividad y reiniciar la instancia, verificamos:
+
+```bash
+aws ssm describe-instance-information
+```
+
+Resultado:
+
+```text
+PingStatus   → Online
+Platform     → Ubuntu
+Version      → 24.04
+AgentVersion → 3.3.4793.0
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Para que Session Manager funcione necesitamos varias piezas:
+
+```text
+EC2
+ │
+ ├── SSM Agent
+ ├── IAM Role
+ ├── Instance Profile
+ ├── SSM Permissions
+ └── Conectividad hacia SSM
+```
+
+Si cualquiera de ellas falla, la instancia puede no aparecer como `Online`.
+
+---
+
+## 05.17 — Acceso sin SSH
+
+Instalamos localmente el Session Manager Plugin y ejecutamos:
+
+```bash
+aws ssm start-session \
+  --target <INSTANCE_ID> \
+  --profile terraform-lab \
+  --region eu-west-1
+```
+
+Obtuvimos:
+
+```text
+Starting session with SessionId: ...
+$
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Podemos administrar la EC2 sin:
+
+```text
+❌ SSH público
+❌ Puerto 22 abierto
+❌ Key Pair
+```
+
+La arquitectura queda:
+
+```text
+Mac
+ │
+ │ AWS CLI
+ │ Session Manager Plugin
+ ▼
+AWS Systems Manager
+ │
+ ▼
+SSM Agent
+ │
+ ▼
+EC2
+```
+
+Esto reduce la superficie de exposición de la instancia.
+
+---
+
+## 05.18 — Usuario `ssm-user`
+
+Dentro de EC2 ejecutamos:
+
+```bash
+whoami
+```
+
+Resultado:
+
+```text
+ssm-user
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Session Manager crea/utiliza un usuario específico para la sesión.
+
+No estábamos entrando mediante:
+
+```text
+ubuntu + SSH
+```
+
+sino mediante:
+
+```text
+ssm-user + Systems Manager
+```
+
+Por eso inicialmente:
+
+```bash
+cat /home/ubuntu/terraform-lab.txt
+```
+
+devolvió:
+
+```text
+Permission denied
+```
+
+Mientras:
+
+```bash
+sudo cat /home/ubuntu/terraform-lab.txt
+```
+
+funcionó correctamente.
+
+También diferenciamos:
+
+```text
+Permission denied
+```
+
+de:
+
+```text
+No such file or directory
+```
+
+El primero indica un problema de permisos.
+
+El segundo indicaría que la ruta o archivo no existe.
+
+---
+
+## 05.19 — Verificación del User Data
 
 Ejecutamos:
 
 ```bash
-terraform apply
+sudo cat /home/ubuntu/terraform-lab.txt
 ```
 
-Terraform indicó:
+Resultado:
 
 ```text
-Resources: 0 added, 0 changed, 0 destroyed.
+Terraform DevSecOps Platform
+EC2 configured automatically using Terraform User Data
 ```
 
-porque añadir outputs no modificaba nuestra infraestructura.
+### 🧠 ¿Qué aprendimos?
 
-Después comprobamos:
+Esto confirmó el flujo completo:
 
-```bash
-terraform output
+```text
+Terraform
+    ↓
+EC2
+    ↓
+User Data
+    ↓
+cloud-init
+    ↓
+user-data.sh
+    ↓
+terraform-lab.txt
 ```
 
-y Terraform devolvió correctamente los identificadores de nuestros recursos.
+La configuración se ejecutó automáticamente durante el arranque de la instancia.
 
 ---
 
-# 05 — Organización del código
+## 05.20 — Verificación de SSM Agent
 
-Inicialmente los recursos estaban concentrados en:
+Comprobamos:
 
-```text
-main.tf
+```bash
+sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service --no-pager
 ```
 
-Posteriormente reorganizamos el proyecto.
+Resultado:
 
-Actualmente:
+```text
+Active: active (running)
+```
+
+También observamos el proceso:
+
+```text
+ssm-session-worker
+```
+
+correspondiente a nuestra sesión activa.
+
+### 🧠 ¿Qué aprendimos?
+
+No solamente comprobamos desde AWS que la instancia estaba `Online`.
+
+También verificamos desde dentro de Ubuntu que `amazon-ssm-agent` estaba ejecutándose correctamente.
+
+---
+
+## 05.21 — Terraform State
+
+Terraform mantiene la relación entre una dirección lógica como:
+
+```text
+aws_instance.devsecops
+```
+
+y el recurso real creado en AWS.
+
+Conceptualmente:
+
+```text
+Terraform Configuration
+         │
+         ▼
+aws_instance.devsecops
+         │
+         ▼
+Terraform State
+         │
+         ▼
+EC2 real en AWS
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Terraform necesita saber qué recurso real corresponde con cada recurso declarado en nuestra configuración.
+
+El State mantiene esa relación y otra información necesaria para administrar la infraestructura.
+
+Por eso no debemos perderlo ni publicarlo indiscriminadamente.
+
+Más adelante evolucionaremos desde State local hacia **Remote State**.
+
+---
+
+## 05.22 — Validación final e idempotencia
+
+Después de terminar todas las pruebas ejecutamos:
+
+```bash
+terraform plan
+```
+
+Terraform refrescó los recursos existentes y respondió:
+
+```text
+No changes. Your infrastructure matches the configuration.
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Nuestra situación final es:
+
+```text
+Terraform Configuration
+        =
+Terraform State
+        =
+Infraestructura real
+```
+
+No hay cambios pendientes.
+
+Terraform trabaja de forma declarativa: indicamos el estado deseado y Terraform calcula qué operaciones son necesarias para alcanzarlo.
+
+Si ya estamos en ese estado:
+
+```text
+Misma configuración deseada
+          ↓
+terraform plan
+          ↓
+No changes
+```
+
+---
+
+# 06 — Organización del código
+
+La infraestructura está separada por responsabilidad:
 
 ```text
 network.tf
@@ -1332,14 +1725,10 @@ network.tf
 ├── Internet Gateway
 ├── Public Subnet
 ├── Private Subnet
-├── Public Route Table
-├── Public Internet Route
-├── Public Route Table Association
-├── Private Route Table
-└── Private Route Table Association
+├── Route Tables
+├── Routes
+└── Associations
 ```
-
-y:
 
 ```text
 security.tf
@@ -1347,69 +1736,38 @@ security.tf
 └── Security Group
 ```
 
----
+```text
+compute.tf
+│
+├── Ubuntu AMI Data Source
+└── EC2
+```
+
+```text
+iam.tf
+│
+├── IAM Role
+├── Policy Attachment
+└── Instance Profile
+```
 
 ## 🧠 ¿Qué aprendimos?
 
-Terraform no identifica un recurso por el archivo donde está escrito.
-
-Por ejemplo:
-
-```hcl
-resource "aws_security_group" "terraform_lab"
-```
-
-tiene la dirección:
+Terraform identifica un recurso por su dirección:
 
 ```text
-aws_security_group.terraform_lab
+aws_instance.devsecops
 ```
 
-Mover ese bloque:
+y no por el archivo donde esté escrito.
 
-```text
-main.tf
-   ↓
-security.tf
-```
-
-no cambia su dirección dentro de Terraform.
-
-Por eso pudimos reorganizar los archivos sin destruir la infraestructura.
+Mover un bloque entre archivos `.tf` dentro del mismo módulo no cambia automáticamente la dirección del recurso.
 
 ---
 
-## ✅ Al finalizar este punto
+# 07 — Git y seguridad
 
-Después de mover los recursos ejecutamos:
-
-```bash
-terraform fmt
-terraform validate
-terraform plan
-```
-
-Resultado:
-
-```text
-Success! The configuration is valid.
-```
-
-y:
-
-```text
-No changes. Your infrastructure matches the configuration.
-```
-
-Esto confirmó que la reorganización del código **no había modificado AWS**.
-
----
-
-# 06 — Git y seguridad del repositorio
-
-También configuramos `.gitignore` para evitar subir archivos que no deben almacenarse en Git.
-
-Entre ellos:
+`.gitignore` evita subir:
 
 ```gitignore
 .terraform/
@@ -1434,95 +1792,58 @@ terraform.rc
 .DS_Store
 ```
 
----
-
-## 🧠 ¿Por qué no versionamos terraform.tfstate?
-
-Terraform State mantiene información sobre la relación entre:
-
-```text
-Terraform configuration
-        ↕
-Terraform State
-        ↕
-AWS resources
-```
-
-Puede contener información que no queremos publicar.
-
-Por eso:
-
-```text
-terraform.tfstate
-```
-
-y sus backups no deben subirse al repositorio público.
-
-Más adelante estudiaremos **Remote State**, que es especialmente importante cuando Terraform se utiliza en equipos y pipelines CI/CD.
-
----
-
-## 🧠 ¿Qué sí versionamos?
-
-Sí queremos almacenar:
+Sí versionamos:
 
 ```text
 *.tf
 README.md
 .gitignore
 .terraform.lock.hcl
+user-data.sh
 ```
 
-El lock file:
+## 🧠 ¿Qué aprendimos?
+
+El State puede contener información sensible y no debe almacenarse directamente en un repositorio público.
+
+También aprendimos que:
 
 ```text
 .terraform.lock.hcl
 ```
 
-normalmente **sí debe versionarse**.
-
-Ayuda a mantener consistentes las versiones de los providers utilizadas por el proyecto.
+normalmente sí debe versionarse para mantener consistentes las versiones seleccionadas de providers.
 
 ---
 
-# 🔄 Flujo de trabajo utilizado
-
-Durante el proyecto estamos siguiendo este proceso:
+# 🔄 Flujo de trabajo
 
 ```text
           ┌───────────────────────┐
           │  Entender el recurso  │
           └───────────┬───────────┘
-                      │
                       ▼
           ┌───────────────────────┐
           │  Escribir Terraform   │
           └───────────┬───────────┘
-                      │
                       ▼
              terraform fmt
-                      │
                       ▼
            terraform validate
-                      │
                       ▼
              terraform plan
-                      │
                       ▼
               REVISAR PLAN
-                      │
                       ▼
              terraform apply
-                      │
                       ▼
            Verificar en AWS
-                      │
                       ▼
             Verificar AWS CLI
-                      │
+                      ▼
+          Diagnosticar errores
                       ▼
              Documentación
-                      │
                       ▼
                Git commit
 ```
@@ -1543,19 +1864,16 @@ sin entender primero:
 terraform plan
 ```
 
-Especialmente si aparecen operaciones como:
+Especialmente:
 
 ```text
-destroy
++     create
+~     update in-place
+-     destroy
+-/+   replacement
 ```
 
-o:
-
-```text
--/+
-```
-
-Si Terraform quiere destruir algo que no esperábamos:
+Si aparece una destrucción que no esperábamos:
 
 ```text
 STOP
@@ -1569,97 +1887,137 @@ Aplicar solamente cuando sea correcto
 
 ---
 
-# 🧪 Comandos utilizados
-
-Inicialización:
+# 🧪 Comandos Terraform utilizados
 
 ```bash
 terraform init
-```
-
-Formatear:
-
-```bash
 terraform fmt
-```
-
-Validar:
-
-```bash
 terraform validate
-```
-
-Planificar:
-
-```bash
 terraform plan
-```
-
-Aplicar:
-
-```bash
 terraform apply
-```
-
-Consultar outputs:
-
-```bash
 terraform output
-```
-
-Consultar un output concreto:
-
-```bash
-terraform output vpc_id
-```
-
-Obtener únicamente su valor:
-
-```bash
 terraform output -raw vpc_id
 ```
 
 ---
 
+# 🧪 Comandos AWS utilizados
+
+Durante las verificaciones utilizamos AWS CLI para consultar:
+
+```text
+VPC
+Subnets
+Route Tables
+Internet Gateway
+Security Groups
+Network ACL
+EC2
+IAM
+Systems Manager
+```
+
+También utilizamos:
+
+```bash
+aws ssm describe-instance-information
+```
+
+para verificar el estado de SSM y:
+
+```bash
+aws ssm start-session
+```
+
+para acceder a EC2 mediante Session Manager.
+
+---
+
 # 🧠 Conceptos aprendidos hasta ahora
 
-Durante esta primera fase hemos trabajado con:
-
-### Terraform
+## Terraform
 
 - Infrastructure as Code.
+- Configuración declarativa.
 - Providers.
 - Resources.
+- Data Sources.
+- `resource` vs `data`.
 - Terraform State.
 - Dependency Graph.
+- Implicit dependencies.
 - Resource references.
 - Variables.
+- Fuentes de valores de variables.
 - `terraform.tfvars`.
-- Local values.
+- Locals.
 - Outputs.
+- `file()`.
+- `path.module`.
+- `jsonencode()`.
+- `jsondecode()`.
+- `(known after apply)`.
 - Refactoring.
-- Terraform formatting.
-- Terraform validation.
-- Terraform plans.
-- Terraform apply.
+- `terraform fmt`.
+- `terraform validate`.
+- `terraform plan`.
+- `terraform apply`.
+- Update in-place.
+- Resource replacement.
+- Plan symbols.
+- Idempotencia.
+- Provider/API validation.
 
-### AWS Networking
+## AWS Networking
 
 - VPC.
 - CIDR.
-- Public Subnets.
-- Private Subnets.
+- Public Subnet.
+- Private Subnet.
 - Availability Zones.
 - Internet Gateway.
 - Route Tables.
 - Routes.
-- Default route.
-- Local route.
+- Default Route.
+- Local Route.
 - Route Table Associations.
 - Main Route Table.
 - Security Groups.
+- Network ACL.
+- Stateful vs Stateless.
+- Public IPv4.
 
-### DevOps
+## AWS Compute
+
+- EC2.
+- AMI.
+- Ubuntu Server.
+- Instance Type.
+- User Data.
+- cloud-init.
+- Public IP.
+- Private IP.
+
+## AWS IAM
+
+- IAM Role.
+- Trust Policy.
+- Permissions Policy.
+- `sts:AssumeRole`.
+- Managed Policies.
+- Policy Attachment.
+- Instance Profile.
+
+## AWS Systems Manager
+
+- SSM Agent.
+- Session Manager.
+- SSM Managed Instance.
+- `ssm-user`.
+- Administración sin SSH.
+- Diagnóstico de conectividad.
+
+## DevOps / DevSecOps
 
 - Git.
 - GitHub.
@@ -1668,7 +2026,10 @@ Durante esta primera fase hemos trabajado con:
 - Incremental changes.
 - Validation before deployment.
 - AWS CLI verification.
-- Documentation as part of the development process.
+- Troubleshooting por capas.
+- Documentación.
+- Reducción de superficie de exposición.
+- Automatización de configuración.
 
 ---
 
@@ -1677,29 +2038,41 @@ Durante esta primera fase hemos trabajado con:
 ```text
 Terraform AWS DevSecOps Platform
 │
-├── 01 — Terraform Setup                 ✅
+├── 01 — Terraform Setup                         ✅
 │
-├── 02 — Networking                      ✅
-│   │
-│   ├── VPC                              ✅
-│   ├── Public Subnet                    ✅
-│   ├── Private Subnet                   ✅
-│   ├── Internet Gateway                 ✅
-│   ├── Public Route Table               ✅
-│   ├── Public Internet Route            ✅
-│   ├── Public RT Association            ✅
-│   ├── Private Route Table              ✅
-│   ├── Private RT Association           ✅
-│   └── Security Group base              ✅
+├── 02 — Networking                              ✅
+│   ├── VPC                                      ✅
+│   ├── Public Subnet                            ✅
+│   ├── Private Subnet                           ✅
+│   ├── Internet Gateway                         ✅
+│   ├── Public Route Table                       ✅
+│   ├── Public Internet Route                    ✅
+│   ├── Public RT Association                    ✅
+│   ├── Private Route Table                      ✅
+│   ├── Private RT Association                   ✅
+│   └── Security Group                           ✅
 │
-├── Variables                            ✅
-├── terraform.tfvars                     ✅
-├── Locals                               ✅
-├── Outputs                              ✅
-├── Code organization                    ✅
-├── AWS CLI verification                 ✅
+├── Variables / tfvars / locals                  ✅
+├── Outputs                                      ✅
+├── Code organization                            ✅
+├── AWS CLI verification                         ✅
 │
-└── 03 — Compute / EC2                   ⏳ NEXT
+├── 05 — Compute / EC2                           ✅
+│   ├── Ubuntu AMI Data Source                   ✅
+│   ├── EC2 t2.micro                             ✅
+│   ├── Public IPv4                              ✅
+│   ├── Security Group                           ✅
+│   ├── IAM Role                                 ✅
+│   ├── AmazonSSMManagedInstanceCore             ✅
+│   ├── Instance Profile                         ✅
+│   ├── User Data                                ✅
+│   ├── SSM Agent                                ✅
+│   ├── Session Manager                          ✅
+│   ├── Acceso sin SSH                           ✅
+│   ├── Troubleshooting SSM                      ✅
+│   └── terraform plan → No changes              ✅
+│
+└── Próximo bloque                               ⏳
 ```
 
 ---
@@ -1716,53 +2089,79 @@ Terraform AWS DevSecOps Platform
 - [x] Private Subnet.
 - [x] Internet Gateway.
 - [x] Public Route Table.
-- [x] Ruta `0.0.0.0/0` hacia Internet.
-- [x] Public Route Table Association.
-- [x] Private Route Table.
-- [x] Private Route Table Association.
-- [x] Verificación del routing.
-- [x] Security Group base.
+- [x] Ruta `0.0.0.0/0`.
+- [x] Route Table Associations.
+- [x] Security Group.
 - [x] Variables.
 - [x] `terraform.tfvars`.
 - [x] Locals.
 - [x] Outputs.
 - [x] Organización del código.
 - [x] `.gitignore`.
-- [x] Verificación mediante AWS CLI.
-- [x] Documentación inicial.
+- [x] AWS CLI.
+- [x] AMI mediante Data Source.
+- [x] EC2.
+- [x] IAM Role.
+- [x] Trust Policy.
+- [x] Policy Attachment.
+- [x] Instance Profile.
+- [x] AWS Systems Manager.
+- [x] Session Manager.
+- [x] Acceso sin SSH.
+- [x] User Data.
+- [x] Diagnóstico real de conectividad.
+- [x] Verificación de SSM Agent.
+- [x] Validación final mediante `terraform plan`.
+- [x] Documentación de Compute.
 
 ---
 
-# ⏭️ Próximo bloque — Compute / EC2
+# 🔐 Arquitectura actual
 
-El siguiente objetivo será desplegar nuestra primera carga de trabajo sobre la infraestructura de red.
-
-Trabajaremos progresivamente con:
-
-- [ ] Diseño de la instancia EC2.
-- [ ] Selección de AMI.
-- [ ] Instance Type.
-- [ ] Variables de Compute.
-- [ ] `compute.tf`.
-- [ ] EC2 dentro de la Public Subnet.
-- [ ] Direccionamiento IPv4 público.
-- [ ] Reglas del Security Group.
-- [ ] Acceso seguro.
-- [ ] SSH vs AWS Systems Manager.
-- [ ] IAM Role.
-- [ ] Instance Profile.
-- [ ] User Data.
-- [ ] Outputs de Compute.
-- [ ] Verificación mediante AWS CLI.
-- [ ] Validación final.
-- [ ] Commit del bloque Compute.
-- [ ] Actualización de este README.
+```text
+                              INTERNET
+                                  │
+                                  ▼
+                         Internet Gateway
+                                  │
+                                  ▼
+                         VPC 10.0.0.0/16
+                                  │
+                ┌─────────────────┴─────────────────┐
+                │                                   │
+         PUBLIC SUBNET                       PRIVATE SUBNET
+          10.0.1.0/24                         10.0.2.0/24
+                │
+                ▼
+              EC2
+         Ubuntu 24.04
+           t2.micro
+                │
+        ┌───────┴────────┐
+        │                │
+ Security Group     Instance Profile
+        │                │
+ Ingress: none       IAM Role
+ Egress: allowed         │
+                         ▼
+              AmazonSSMManagedInstanceCore
+                         │
+                         ▼
+                 Systems Manager
+                         │
+                         ▼
+                  Session Manager
+                         │
+                         ▼
+               Administración segura
+                    sin SSH/22
+```
 
 ---
 
 # 🚀 Evolución del proyecto
 
-La arquitectura actual es solamente la base.
+La arquitectura actual sigue siendo una base sobre la que construiremos progresivamente una plataforma más completa.
 
 ```text
                     ┌───────────────────┐
@@ -1783,14 +2182,14 @@ La arquitectura actual es solamente la base.
               │                               │
           Networking                       Compute
               │                               │
-      ┌───────┴───────┐                      │
-      │               │                      ▼
- Public Subnet   Private Subnet             EC2
+      ┌───────┴───────┐                      ▼
+      │               │                     EC2
+ Public Subnet   Private Subnet               │
+                                              ▼
+                                             SSM
 ```
 
-Esta arquitectura irá evolucionando a medida que avancemos en el proyecto.
-
-El objetivo final será disponer de un proyecto práctico que combine conceptos de:
+El objetivo final será disponer de un proyecto práctico que combine:
 
 **Terraform + AWS + Infrastructure as Code + Automation + CI/CD + DevSecOps**
 
