@@ -83,3 +83,48 @@ output "ec2_iam_role_name" {
   description = "IAM Role attached to the EC2 instance"
   value       = aws_iam_role.ec2_ssm.name
 }
+
+
+output "uppercase_servers" {
+  description = "servidores transformados a mayusculas mediante una expresion for"
+  value       = local.uppercase_servers
+}
+
+output "filtered_servers" {
+  description = "Servidores filtrados y transformados"
+  value       = local.filtered_servers
+}
+
+output "server_map" {
+  description = "Mapa generado mediante una expresión for"
+  value       = local.server_map
+}
+
+output "example_instance_type" {
+  description = "tipo de instancia seleccionado mediante una expresion condicional"
+  value       = local.example_instance_type
+}
+
+output "function_list" {
+  value = local.function_list
+}
+
+output "function_tags" {
+  value = local.function_tags
+}
+
+output "function_instance_type" {
+  value = local.function_instance_type
+}
+
+output "function_unique_services" {
+  value = local.function_unique_services
+}
+
+output "function_optional_value" {
+  value = local.function_optional_value
+}
+
+output "function_name" {
+  value = local.function_name
+}
