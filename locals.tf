@@ -1,7 +1,7 @@
 # LOCAL VALUES
 
 locals {
-  name_prefix = "terraform-lab"
+  name_prefix = "${var.project_name}-${var.environment}"
 
   # FOR EXPRESSIONS
 
