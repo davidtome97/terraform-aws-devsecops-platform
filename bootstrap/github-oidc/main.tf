@@ -251,62 +251,220 @@ resource "aws_iam_role_policy" "github_deploy_state" {
 # ============================================================
 
 data "aws_iam_policy_document" "github_deploy_infrastructure" {
+  # checkov:skip=CKV_AWS_356:Wildcard resources are required for EC2 Describe actions, CloudWatch Logs DescribeLogGroups, and KMS CreateKey. KMS key creation is additionally constrained by the Project request tag.
+
 
   # ----------------------------------------------------------
-  # EC2 / VPC
+  # EC2 / VPC - READ
   # ----------------------------------------------------------
 
   statement {
-    sid    = "ManageEC2AndNetworking"
+    sid    = "ReadEC2AndNetworking"
     effect = "Allow"
 
     actions = [
-      "ec2:Describe*",
-
-      "ec2:CreateVpc",
-      "ec2:DeleteVpc",
-      "ec2:ModifyVpcAttribute",
-
-      "ec2:CreateSubnet",
-      "ec2:DeleteSubnet",
-      "ec2:ModifySubnetAttribute",
-
-      "ec2:CreateInternetGateway",
-      "ec2:DeleteInternetGateway",
-      "ec2:AttachInternetGateway",
-      "ec2:DetachInternetGateway",
-
-      "ec2:CreateRouteTable",
-      "ec2:DeleteRouteTable",
-      "ec2:CreateRoute",
-      "ec2:ReplaceRoute",
-      "ec2:DeleteRoute",
-      "ec2:AssociateRouteTable",
-      "ec2:DisassociateRouteTable",
-
-      "ec2:CreateSecurityGroup",
-      "ec2:DeleteSecurityGroup",
-      "ec2:AuthorizeSecurityGroupIngress",
-      "ec2:RevokeSecurityGroupIngress",
-      "ec2:AuthorizeSecurityGroupEgress",
-      "ec2:RevokeSecurityGroupEgress",
-
-      "ec2:RunInstances",
-      "ec2:TerminateInstances",
-      "ec2:StartInstances",
-      "ec2:StopInstances",
-      "ec2:CreateTags",
-      "ec2:DeleteTags",
-
-      "ec2:CreateFlowLogs",
-      "ec2:DeleteFlowLogs"
+      "ec2:Describe*"
     ]
 
     resources = ["*"]
   }
 
   # ----------------------------------------------------------
-  # IAM
+  # EC2 / VPC - CREATE NETWORK RESOURCES
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "CreateProjectNetworkResources"
+    effect = "Allow"
+
+    actions = [
+      "ec2:CreateVpc",
+      "ec2:CreateSubnet",
+      "ec2:CreateInternetGateway",
+      "ec2:CreateRouteTable",
+      "ec2:CreateSecurityGroup"
+    ]
+
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:internet-gateway/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:route-table/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:security-group/*"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+
+      values = [
+        var.github_repository
+      ]
+    }
+  }
+
+  # ----------------------------------------------------------
+  # EC2 / VPC - MANAGE PROJECT RESOURCES
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "ManageExistingProjectEC2Resources"
+    effect = "Allow"
+
+    actions = [
+      "ec2:DeleteVpc",
+      "ec2:ModifyVpcAttribute",
+
+      "ec2:DeleteSubnet",
+      "ec2:ModifySubnetAttribute",
+
+      "ec2:DeleteInternetGateway",
+
+      "ec2:DeleteRouteTable",
+
+      "ec2:DeleteSecurityGroup",
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:RevokeSecurityGroupIngress",
+      "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupEgress",
+
+      "ec2:TerminateInstances",
+      "ec2:StartInstances",
+      "ec2:StopInstances",
+
+      "ec2:DeleteFlowLogs"
+    ]
+
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:internet-gateway/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:route-table/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+
+      values = [
+        var.github_repository
+      ]
+    }
+  }
+
+  # ----------------------------------------------------------
+  # EC2 / VPC - ROUTING
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "ManageProjectRouting"
+    effect = "Allow"
+
+    actions = [
+      "ec2:AttachInternetGateway",
+      "ec2:DetachInternetGateway",
+
+      "ec2:CreateRoute",
+      "ec2:ReplaceRoute",
+      "ec2:DeleteRoute",
+
+      "ec2:AssociateRouteTable",
+      "ec2:DisassociateRouteTable"
+    ]
+
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:internet-gateway/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:route-table/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+
+      values = [
+        var.github_repository
+      ]
+    }
+  }
+
+  # ----------------------------------------------------------
+  # EC2 - RUN INSTANCES
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "RunProjectEC2Instances"
+    effect = "Allow"
+
+    actions = [
+      "ec2:RunInstances"
+    ]
+
+    resources = [
+      # Ubuntu AMI de Canonical
+      "arn:aws:ec2:${var.aws_region}::image/*",
+
+      # Recursos necesarios para lanzar la instancia
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+
+      # Recursos creados por RunInstances
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:volume/*"
+    ]
+  }
+
+  # ----------------------------------------------------------
+  # EC2 - TAG PROJECT RESOURCES
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "ManageProjectEC2Tags"
+    effect = "Allow"
+
+    actions = [
+      "ec2:CreateTags",
+      "ec2:DeleteTags"
+    ]
+
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:internet-gateway/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:route-table/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:volume/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
+    ]
+  }
+
+  # ----------------------------------------------------------
+  # EC2 - VPC FLOW LOGS
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "CreateProjectVPCFlowLogs"
+    effect = "Allow"
+
+    actions = [
+      "ec2:CreateFlowLogs"
+    ]
+
+    resources = [
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc/*",
+      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
+    ]
+  }
+
+  # ----------------------------------------------------------
+  # IAM - PROJECT RESOURCES
   # ----------------------------------------------------------
 
   statement {
@@ -348,17 +506,31 @@ data "aws_iam_policy_document" "github_deploy_infrastructure" {
   }
 
   # ----------------------------------------------------------
-  # CLOUDWATCH LOGS
+  # CLOUDWATCH LOGS - READ
   # ----------------------------------------------------------
 
   statement {
-    sid    = "ManageCloudWatchLogs"
+    sid    = "ReadCloudWatchLogs"
+    effect = "Allow"
+
+    actions = [
+      "logs:DescribeLogGroups"
+    ]
+
+    resources = ["*"]
+  }
+
+  # ----------------------------------------------------------
+  # CLOUDWATCH LOGS - PROJECT RESOURCES
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "ManageProjectCloudWatchLogs"
     effect = "Allow"
 
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
-      "logs:DescribeLogGroups",
       "logs:ListTagsForResource",
       "logs:TagResource",
       "logs:UntagResource",
@@ -368,19 +540,44 @@ data "aws_iam_policy_document" "github_deploy_infrastructure" {
       "logs:DisassociateKmsKey"
     ]
 
-    resources = ["*"]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/vpc/${var.github_repository}-*"
+    ]
   }
 
   # ----------------------------------------------------------
-  # KMS
+  # KMS - CREATE PROJECT KEYS
   # ----------------------------------------------------------
 
   statement {
-    sid    = "ManageFlowLogsKMS"
+    sid    = "CreateProjectKMSKeys"
     effect = "Allow"
 
     actions = [
-      "kms:CreateKey",
+      "kms:CreateKey"
+    ]
+
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+
+      values = [
+        var.github_repository
+      ]
+    }
+  }
+
+  # ----------------------------------------------------------
+  # KMS - MANAGE PROJECT KEYS
+  # ----------------------------------------------------------
+
+  statement {
+    sid    = "ManageProjectKMSKeys"
+    effect = "Allow"
+
+    actions = [
       "kms:DescribeKey",
       "kms:GetKeyPolicy",
       "kms:PutKeyPolicy",
@@ -393,9 +590,24 @@ data "aws_iam_policy_document" "github_deploy_infrastructure" {
       "kms:ListResourceTags"
     ]
 
-    resources = ["*"]
+    resources = [
+      "arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:key/*"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+
+      values = [
+        var.github_repository
+      ]
+    }
   }
 }
+
+# ============================================================
+# ATTACH INFRASTRUCTURE POLICY TO DEPLOY ROLE
+# ============================================================
 
 resource "aws_iam_role_policy" "github_deploy_infrastructure" {
   name   = "terraform-infrastructure-deploy"
