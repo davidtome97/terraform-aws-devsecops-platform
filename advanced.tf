@@ -54,6 +54,7 @@ resource "terraform_data" "for_each_example" {
 # ============================================================
 
 resource "aws_security_group" "dynamic_example" {
+  # checkov:skip=CKV2_AWS_5:Security group intentionally standalone for dynamic block learning purposes
   name        = "${local.name_prefix}-dynamic-example"
   description = "Security group utilizado para practicar dynamic blocks"
   vpc_id      = module.network.vpc_id

@@ -9,6 +9,9 @@
 *.tfvars
 *.tfvars.json
 
+# Allow non-sensitive environment configuration used by CI/CD
+!environments/dev.tfvars
+
 # Terraform crash logs
 crash.log
 crash.*.log
