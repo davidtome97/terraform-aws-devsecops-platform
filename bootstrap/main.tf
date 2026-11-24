@@ -136,12 +136,12 @@ resource "aws_s3_bucket_versioning" "terraform_state_logs" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state_logs" {
+  # checkov:skip=CKV_AWS_145:S3 server access logging destination requires SSE-S3; SSE-KMS is not supported for direct S3 log delivery
   bucket = aws_s3_bucket.terraform_state_logs.id
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.terraform_state.arn
+      sse_algorithm = "AES256"
     }
   }
 }
