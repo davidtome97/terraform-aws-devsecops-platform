@@ -19,8 +19,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Terraform Deploy
+  # ==========================================================
+  # PLAN
+  # ==========================================================
+  plan:
+    name: Terraform Plan
     runs-on: ubuntu-latest
 
     permissions:
@@ -48,10 +51,76 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: arn:aws:iam::490145258703:role/terraform-github-deploy
+          role-to-assume: arn:aws:iam::490145258703:role/terraform-github-plan
           aws-region: eu-west-1
-          role-session-name: terraform-deploy-${{ github.run_id }}
+          role-session-name: terraform-plan-${{ github.run_id }}
           allowed-account-ids: 490145258703
 
       - name: Verify AWS identity
         run: aws sts get-caller-identity
+
+      - name: Terraform Init with Remote Backend
+        run: terraform init -reconfigure
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -var-file=environments/dev.tfvars \
+            -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: tfplan
+          retention-days: 1
+          if-no-files-found: error
+
+  # ==========================================================
+  # APPLY
+  # ==========================================================
+  apply:
+    name: Terraform Apply
+    needs: plan
+    runs-on: ubuntu-latest
+
+    # GitHub Environment protegido:
+    # - Solo main
+    # - Requiere aprobación manual
+    environment: dev
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::490145258703:role/terraform-github-deploy
+          aws-region: eu-west-1
+          role-session-name: terraform-apply-${{ github.run_id }}
+          allowed-account-ids: 490145258703
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Terraform Init with Remote Backend
+        run: terraform init -reconfigure
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: .
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan

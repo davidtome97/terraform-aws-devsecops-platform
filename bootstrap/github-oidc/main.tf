@@ -165,7 +165,7 @@ data "aws_iam_policy_document" "github_deploy_assume_role" {
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:${var.github_owner}@25766791/${var.github_repository}@1463842042:ref:refs/heads/main"
+        "repo:${var.github_owner}@25766791/${var.github_repository}@1463842042:environment:dev"
       ]
     }
   }
