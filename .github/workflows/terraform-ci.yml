@@ -35,6 +35,8 @@ jobs:
         run: terraform validate
 
       - name: TFLint Init
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: tflint --init
 
       - name: TFLint
