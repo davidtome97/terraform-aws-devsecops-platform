@@ -73,3 +73,28 @@ variable "example_ingress_rules" {
     }
   }
 }
+
+# SECURITY PRACTICE
+# Sensitive variables
+
+variable "example_sensitive_value" {
+  description = "valor ficticio utilizado para practicar variables sensibles"
+  type        = string
+  sensitive   = true
+  default     = "terraform-security-demo"
+}
+
+variable "environment" {
+  description = "entorno dando se despliega la infraestructura"
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition = contains(
+      ["dev", "staging", "prod"],
+      var.environment
+    )
+
+    error_message = "enviroment deber ser dev, staging o prod"
+  }
+}

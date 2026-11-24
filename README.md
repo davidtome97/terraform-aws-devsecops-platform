@@ -4557,6 +4557,993 @@ Terraform State
 Amazon S3
 ```
 
+---
+
+# 07 — Seguridad y buenas prácticas
+
+Una vez modularizada la infraestructura, el siguiente paso es mejorar su
+seguridad y añadir controles que permitan detectar configuraciones incorrectas
+antes de desplegar recursos en AWS.
+
+En este bloque se han aplicado prácticas relacionadas con:
+
+- protección de secretos;
+- gestión segura del estado;
+- IAM;
+- acceso seguro a EC2;
+- protección de Instance Metadata;
+- cifrado;
+- monitorización;
+- Security Groups;
+- validaciones nativas de Terraform;
+- análisis estático de Infrastructure as Code con Checkov.
+
+El objetivo no consiste únicamente en conseguir que Terraform pueda crear la
+infraestructura, sino en conseguir que la configuración sea:
+
+```text
+Infrastructure as Code
+        │
+        ▼
+Validación
+        │
+        ▼
+Security Scan
+        │
+        ▼
+Terraform Plan
+        │
+        ▼
+Infraestructura revisada
+```
+
+---
+
+## 07.1 — Protección de secretos y archivos sensibles
+
+Uno de los primeros principios de seguridad al trabajar con Terraform es evitar
+que información sensible termine almacenada en Git.
+
+El proyecto utiliza `.gitignore` para excluir archivos que no deben formar parte
+del repositorio:
+
+```gitignore
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.DS_Store
+bootstrap/tfplan
+```
+
+Entre los archivos especialmente importantes se encuentran:
+
+```text
+terraform.tfstate
+terraform.tfvars
+```
+
+El state puede contener información sensible sobre la infraestructura y no debe
+subirse al repositorio.
+
+Los archivos `.tfvars` pueden contener valores específicos de un entorno e
+incluso secretos, por lo que tampoco se versionan en este laboratorio.
+
+Sin embargo:
+
+```text
+.terraform.lock.hcl
+```
+
+sí se mantiene en Git.
+
+Este archivo permite registrar las versiones seleccionadas de los providers y
+mejorar la reproducibilidad de las ejecuciones de Terraform.
+
+```text
+.gitignore
+
+terraform.tfstate      → NO Git
+terraform.tfvars       → NO Git
+.terraform/            → NO Git
+
+.terraform.lock.hcl    → SÍ Git
+```
+
+---
+
+## 07.2 — Remote State
+
+El estado de Terraform se almacena remotamente en Amazon S3.
+
+Esto permite separar:
+
+```text
+Código Terraform
+      │
+      ▼
+Git
+
+Estado Terraform
+      │
+      ▼
+Amazon S3
+```
+
+El backend utiliza medidas de protección como:
+
+- almacenamiento remoto;
+- cifrado;
+- bloqueo del state;
+- protección contra acceso público.
+
+El state remoto permite trabajar de una forma más cercana a un entorno
+profesional y evita depender de un fichero `terraform.tfstate` almacenado
+únicamente en el equipo local.
+
+> Marcar un valor como `sensitive` no significa que Terraform lo cifre dentro
+> del state. El state debe protegerse independientemente.
+
+---
+
+## 07.3 — Variables sensibles
+
+Terraform permite marcar variables como sensibles:
+
+```hcl
+variable "example_sensitive_value" {
+  description = "Valor ficticio utilizado para practicar variables sensibles"
+  type        = string
+  sensitive   = true
+  default     = "terraform-security-demo"
+}
+```
+
+También pueden existir outputs sensibles:
+
+```hcl
+output "example_sensitive_value" {
+  description = "Ejemplo de output sensible"
+  value       = var.example_sensitive_value
+  sensitive   = true
+}
+```
+
+Terraform evita mostrar directamente estos valores en determinadas salidas:
+
+```text
+example_sensitive_value = (sensitive value)
+```
+
+Sin embargo, es importante entender:
+
+```text
+sensitive = ocultar en determinadas salidas
+
+sensitive ≠ cifrar el state
+```
+
+Por tanto, `sensitive` no sustituye una correcta protección del backend.
+
+---
+
+## 07.4 — Validación de variables
+
+Terraform permite validar los valores introducidos mediante bloques
+`validation`.
+
+Ejemplo utilizado en el proyecto:
+
+```hcl
+variable "environment" {
+  description = "Entorno donde se despliega la infraestructura"
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "environment debe ser dev, staging o prod."
+  }
+}
+```
+
+Esto permite impedir configuraciones no válidas antes de desplegar
+infraestructura.
+
+```text
+Input
+  │
+  ▼
+validation
+  │
+  ├── válido ─────► continuar
+  │
+  └── inválido ───► ERROR
+```
+
+La validación de variables es especialmente útil para controlar:
+
+- nombres de entornos;
+- regiones permitidas;
+- rangos;
+- formatos;
+- tipos de instancia;
+- valores aceptados por una organización.
+
+---
+
+## 07.5 — IAM y acceso seguro mediante SSM
+
+La instancia EC2 no utiliza credenciales AWS estáticas ni acceso administrativo
+mediante SSH.
+
+En su lugar se utiliza:
+
+```text
+EC2
+ │
+ ▼
+IAM Role
+ │
+ ▼
+Instance Profile
+ │
+ ▼
+AmazonSSMManagedInstanceCore
+ │
+ ▼
+AWS Systems Manager
+```
+
+La trust policy del rol se genera mediante:
+
+```hcl
+data "aws_iam_policy_document" "ec2_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+```
+
+La trust policy responde principalmente a:
+
+```text
+¿QUIÉN puede asumir el rol?
+```
+
+Mientras que las policies de permisos responden a:
+
+```text
+¿QUÉ puede hacer el rol?
+```
+
+La instancia recibe el rol mediante un Instance Profile.
+
+```text
+Trust Policy
+     │
+     └── quién puede asumir el rol
+
+Permissions Policy
+     │
+     └── qué puede hacer el rol
+
+Instance Profile
+     │
+     └── permite asociar el rol IAM a EC2
+```
+
+Además, `aws_iam_policy_document` es un **data source**.
+
+Por tanto:
+
+> Genera un documento de política para Terraform, pero no crea por sí mismo un
+> recurso IAM en AWS.
+
+---
+
+## 07.6 — Sin SSH
+
+El Security Group utilizado por la instancia no permite tráfico de entrada.
+
+No existe una regla:
+
+```text
+TCP 22
+0.0.0.0/0
+```
+
+La administración se realiza mediante AWS Systems Manager.
+
+Esto evita tener que gestionar:
+
+- claves SSH;
+- puerto 22;
+- bastion host para este laboratorio;
+- exposición administrativa directa a Internet.
+
+```text
+Administrador
+      │
+      ▼
+AWS Systems Manager
+      │
+      ▼
+IAM
+      │
+      ▼
+EC2
+```
+
+---
+
+## 07.7 — IMDSv2
+
+La instancia EC2 obliga a utilizar Instance Metadata Service Version 2.
+
+Configuración:
+
+```hcl
+metadata_options {
+  http_endpoint = "enabled"
+  http_tokens   = "required"
+}
+```
+
+La opción:
+
+```text
+http_tokens = "required"
+```
+
+obliga a utilizar IMDSv2.
+
+Esto mejora la protección del servicio de metadata de la instancia.
+
+Checkov verifica esta configuración mediante:
+
+```text
+CKV_AWS_79
+```
+
+Resultado:
+
+```text
+PASSED
+```
+
+---
+
+## 07.8 — Cifrado del volumen EBS
+
+El volumen raíz de la instancia EC2 se configura cifrado:
+
+```hcl
+root_block_device {
+  encrypted = true
+}
+```
+
+Esto protege los datos almacenados en el volumen EBS.
+
+Checkov:
+
+```text
+CKV_AWS_8
+```
+
+Resultado:
+
+```text
+PASSED
+```
+
+---
+
+## 07.9 — Detailed Monitoring
+
+La instancia utiliza monitorización detallada:
+
+```hcl
+monitoring = true
+```
+
+Esto permite disponer de métricas de EC2 con mayor granularidad en Amazon
+CloudWatch.
+
+Checkov:
+
+```text
+CKV_AWS_126
+```
+
+Resultado:
+
+```text
+PASSED
+```
+
+---
+
+## 07.10 — EBS Optimized
+
+La instancia utiliza:
+
+```hcl
+ebs_optimized = true
+```
+
+Durante las pruebas se comprobó que `t2.micro` no permitía utilizar esta
+configuración de la forma requerida.
+
+Por ello, el laboratorio utiliza:
+
+```hcl
+instance_type = "t3.micro"
+```
+
+Checkov:
+
+```text
+CKV_AWS_135
+```
+
+Resultado:
+
+```text
+PASSED
+```
+
+---
+
+## 07.11 — Security Group y mínimo privilegio de red
+
+El Security Group principal no contiene reglas de entrada.
+
+El tráfico de salida tampoco permite todos los protocolos y todos los puertos.
+
+Se permiten únicamente:
+
+```text
+TCP 80  → HTTP
+TCP 443 → HTTPS
+```
+
+Esto sustituye una configuración excesivamente permisiva como:
+
+```text
+protocol = "-1"
+0.0.0.0/0
+```
+
+por reglas más específicas.
+
+```text
+EC2
+ │
+ ├── Ingress
+ │      └── ninguno
+ │
+ └── Egress
+        ├── TCP 80  → 0.0.0.0/0
+        └── TCP 443 → 0.0.0.0/0
+```
+
+Checkov confirma que no existe egress completamente abierto mediante:
+
+```text
+CKV_AWS_382
+```
+
+Resultado:
+
+```text
+PASSED
+```
+
+---
+
+## 07.12 — IP pública: riesgo aceptado del laboratorio
+
+Checkov detecta que la instancia EC2 dispone de una dirección IP pública:
+
+```text
+CKV_AWS_88
+EC2 instance should not have public IP
+```
+
+En este laboratorio se ha decidido mantenerla de forma consciente.
+
+La razón es que la instancia necesita conectividad de salida para operaciones
+como:
+
+```text
+AWS Systems Manager
+apt update
+repositorios de paquetes
+```
+
+Eliminar la IP pública y mover completamente la instancia a una arquitectura
+privada requeriría diseñar conectividad adicional mediante alternativas como:
+
+```text
+NAT Gateway
+VPC Endpoints
+Proxy / arquitectura equivalente
+```
+
+Para mantener este laboratorio pequeño y económico se acepta temporalmente el
+riesgo.
+
+La excepción está documentada:
+
+```hcl
+# checkov:skip=CKV_AWS_88:Public IP intentionally required for this low-cost lab. No inbound access is allowed and administration is performed through AWS SSM.
+```
+
+Esto produce:
+
+```text
+CKV_AWS_88 → SKIPPED
+```
+
+Es importante destacar que:
+
+> Tener IP pública no significa automáticamente que la instancia acepte
+> conexiones entrantes.
+
+El Security Group continúa sin reglas de ingress.
+
+Sin embargo, disponer de una IP pública aumenta la superficie de exposición y
+por eso Checkov la identifica como riesgo.
+
+En un entorno productivo sería preferible utilizar una arquitectura como:
+
+```text
+Internet
+   │
+   ▼
+NAT / servicios necesarios
+   │
+   ▼
+Private Subnet
+   │
+   ▼
+EC2
+sin IP pública
+```
+
+La decisión tomada en este proyecto representa un **riesgo conocido,
+justificado y documentado**, no una alerta ignorada.
+
+---
+
+## 07.13 — Checkov
+
+Se incorporó Checkov como herramienta de análisis estático de Infrastructure as
+Code.
+
+El análisis se ejecuta mediante:
+
+```bash
+checkov -d . --framework terraform
+```
+
+Checkov analiza los archivos Terraform sin necesidad de ejecutar
+`terraform apply`.
+
+Flujo:
+
+```text
+Terraform Code
+      │
+      ▼
+Checkov
+      │
+      ├── PASSED
+      ├── FAILED
+      └── SKIPPED
+```
+
+Durante la primera ejecución se detectaron diferentes mejoras de seguridad.
+
+Entre ellas:
+
+```text
+IMDSv2
+EBS encryption
+Detailed Monitoring
+EBS Optimized
+Security Group egress
+Public IP
+```
+
+Después de revisar y corregir la configuración, el resultado final fue:
+
+```text
+Passed checks: 42
+Failed checks: 0
+Skipped checks: 1
+```
+
+El único control omitido es:
+
+```text
+CKV_AWS_88
+```
+
+y dispone de una justificación explícita.
+
+La filosofía utilizada ha sido:
+
+```text
+Finding
+   │
+   ▼
+Entender el riesgo
+   │
+   ├── corregir
+   ├── rediseñar
+   └── aceptar + documentar
+```
+
+No se deben suprimir controles únicamente para conseguir:
+
+```text
+0 FAILED
+```
+
+sin entender previamente el riesgo detectado.
+
+---
+
+## 07.14 — Preconditions
+
+Terraform permite definir condiciones que deben cumplirse antes de realizar una
+operación sobre un recurso.
+
+En la instancia EC2 se utiliza:
+
+```hcl
+lifecycle {
+  precondition {
+    condition     = length(var.security_group_id) > 0
+    error_message = "La instancia EC2 debe tener un Security Group asignado."
+  }
+}
+```
+
+Conceptualmente:
+
+```text
+Precondition
+     │
+     ▼
+¿Se cumplen los requisitos?
+     │
+     ├── sí ───► continuar
+     │
+     └── no ───► ERROR
+```
+
+Durante las pruebas se descubrió un comportamiento importante.
+
+El `security_group_id` procede de:
+
+```text
+module.security
+```
+
+y como el recurso todavía no existe, durante el plan su valor puede ser:
+
+```text
+known after apply
+```
+
+Terraform no puede evaluar una condición cuyo resultado depende todavía de un
+valor desconocido.
+
+Por tanto, algunas preconditions pueden quedar pendientes hasta una fase
+posterior en la que Terraform conozca el valor.
+
+Esto permite distinguir entre:
+
+```text
+Known value
+    │
+    ▼
+Terraform puede evaluar la condición
+
+Unknown value
+(known after apply)
+    │
+    ▼
+La evaluación puede aplazarse
+```
+
+---
+
+## 07.15 — Postconditions
+
+Las postconditions permiten comprobar propiedades asociadas al resultado de un
+recurso.
+
+En este proyecto se verifica que EC2 utilice IMDSv2:
+
+```hcl
+postcondition {
+  condition     = self.metadata_options[0].http_tokens == "required"
+  error_message = "La instancia EC2 debe requerir IMDSv2."
+}
+```
+
+Durante las pruebas se modificó temporalmente la condición para provocar un
+fallo.
+
+Terraform respondió con:
+
+```text
+Error: Resource postcondition failed
+```
+
+Una idea importante es que un plan puede llegar a mostrar:
+
+```text
+Plan: 23 to add
+```
+
+y posteriormente producir un error.
+
+Por tanto:
+
+> Ver la línea `Plan:` no significa necesariamente que la ejecución completa de
+> `terraform plan` haya terminado correctamente.
+
+En CI/CD debe comprobarse el código de salida del comando.
+
+---
+
+## 07.16 — Check blocks
+
+Terraform permite realizar comprobaciones mediante bloques `check`.
+
+El proyecto incorpora:
+
+```hcl
+check "instance_type_recommendation" {
+  assert {
+    condition     = var.instance_type == "t3.micro"
+    error_message = "Para este laboratorio se recomienda utilizar t3.micro para mantener una configuración pequeña y económica."
+  }
+}
+```
+
+A diferencia de una validación obligatoria, utilizar otra instancia no implica
+necesariamente que la infraestructura sea inválida.
+
+Por ello esta condición se utiliza como comprobación.
+
+Durante la prueba se cambió temporalmente:
+
+```text
+t3.micro
+```
+
+por:
+
+```text
+t3.small
+```
+
+Terraform mostró:
+
+```text
+Warning: Check block assertion failed
+```
+
+pero pudo continuar calculando el plan:
+
+```text
+Plan: 23 to add, 0 to change, 0 to destroy.
+```
+
+Esto permite comprender una diferencia importante:
+
+```text
+validation
+     │
+     └── input inválido
+              │
+              ▼
+            ERROR
+
+precondition
+     │
+     └── requisito incumplido
+              │
+              ▼
+            ERROR
+        cuando puede evaluarse
+
+postcondition
+     │
+     └── resultado no cumple
+              │
+              ▼
+            ERROR
+        cuando puede evaluarse
+
+check
+     │
+     └── comprobación no cumple
+              │
+              ▼
+           WARNING
+```
+
+---
+
+## 07.17 — Versión mínima de Terraform
+
+Al utilizar funcionalidades modernas como `check`, el proyecto debe declarar
+una versión mínima compatible de Terraform.
+
+La configuración utilizada es:
+
+```hcl
+terraform {
+  required_version = ">= 1.5.0, < 2.0.0"
+}
+```
+
+`required_version` define qué versiones de Terraform CLI son compatibles con la
+configuración.
+
+No debe confundirse con la versión del AWS Provider:
+
+```hcl
+required_providers {
+  aws = {
+    source  = "hashicorp/aws"
+    version = "~> 6.0"
+  }
+}
+```
+
+Por tanto:
+
+```text
+required_version
+      │
+      └── Terraform CLI
+
+required_providers
+      │
+      └── Providers utilizados
+```
+
+---
+
+## 07.18 — Validación final
+
+Antes de considerar terminado este bloque se ejecutaron:
+
+```bash
+terraform fmt -check -recursive
+terraform validate
+checkov -d . --framework terraform
+terraform plan
+```
+
+Resultado:
+
+```text
+Terraform format
+        │
+        ▼
+       OK
+
+Terraform validate
+        │
+        ▼
+       OK
+
+Checkov
+        │
+        ├── 42 PASSED
+        ├── 0 FAILED
+        └── 1 SKIPPED documentado
+
+Terraform plan
+        │
+        ▼
+23 to add
+0 to change
+0 to destroy
+```
+
+No fue necesario ejecutar:
+
+```bash
+terraform apply
+```
+
+porque el objetivo de este bloque era mejorar y validar la configuración, no
+crear nuevamente la infraestructura.
+
+---
+
+## 07.19 — Flujo DevSecOps conseguido
+
+Después de este bloque el proyecto ya permite realizar manualmente un flujo muy
+parecido al que posteriormente automatizaremos mediante CI/CD:
+
+```text
+Terraform Code
+      │
+      ▼
+terraform fmt
+      │
+      ▼
+terraform validate
+      │
+      ▼
+Checkov
+      │
+      ▼
+terraform plan
+      │
+      ▼
+Review
+      │
+      ▼
+terraform apply
+```
+
+Actualmente estas operaciones se realizan desde el equipo local.
+
+El siguiente paso será trasladar estas comprobaciones a un pipeline:
+
+```text
+Git Push
+   │
+   ▼
+GitLab CI/CD
+   │
+   ├── Format
+   ├── Validate
+   ├── Security Scan
+   └── Plan
+   │
+   ▼
+Approval
+   │
+   ▼
+Apply
+```
+
+De esta forma el proyecto evoluciona desde Infrastructure as Code ejecutado
+manualmente hacia un flujo de trabajo:
+
+**Terraform + AWS + Security + CI/CD + DevSecOps**
+
+
+
 El objetivo final es combinar:
 
 **Terraform + AWS + Infrastructure as Code + Módulos + Automatización +

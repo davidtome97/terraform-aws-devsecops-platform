@@ -121,3 +121,13 @@ output "function_optional_value" {
 output "function_name" {
   value = local.function_name
 }
+
+# SECURITY PRACTICE
+# Sensitive outputs
+
+output "example_sensitive_value" {
+  description = "ejemplo de output sensible"
+  value       = var.example_sensitive_value
+  sensitive   = true
+
+}

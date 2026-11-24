@@ -21,6 +21,25 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+# IAM TRUST POLICY
+
+data "aws_iam_policy_document" "ec2_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+
+    actions = [
+      "sts:AssumeRole"
+    ]
+  }
+
+}
+
+
 # =========================================================
 # IAM ROLE FOR EC2 / SSM
 # =========================================================
@@ -28,21 +47,7 @@ data "aws_ami" "ubuntu" {
 resource "aws_iam_role" "ec2_ssm" {
   name = "${var.name_prefix}-ec2-ssm-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-
-    Statement = [
-      {
-        Effect = "Allow"
-
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
 
   tags = {
     Name    = "${var.name_prefix}-ec2-ssm-role"
@@ -77,13 +82,19 @@ resource "aws_iam_instance_profile" "ec2_ssm" {
 # =========================================================
 # EC2 INSTANCE
 # =========================================================
-
 resource "aws_instance" "devsecops" {
+  # checkov:skip=CKV_AWS_88:Public IP intentionally required for this low-cost lab. No inbound access is allowed and administration is performed through AWS SSM.
+
+
   ami           = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
+  ebs_optimized = true
 
   subnet_id                   = var.subnet_id
   associate_public_ip_address = true
+  monitoring                  = true
+
+
 
   vpc_security_group_ids = [
     var.security_group_id
@@ -91,10 +102,31 @@ resource "aws_instance" "devsecops" {
 
   iam_instance_profile = aws_iam_instance_profile.ec2_ssm.name
 
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  root_block_device {
+    encrypted = true
+  }
+
   user_data = file("${path.module}/user-data.sh")
+
+  lifecycle {
+    precondition {
+      condition     = length(var.security_group_id) > 0
+      error_message = "la instancia EC2 debe tener un Security Group asignado."
+    }
+    postcondition {
+      condition     = self.metadata_options[0].http_tokens == "required"
+      error_message = "la instancia EC2 debe requerir IMDSv2"
+    }
+  }
 
   tags = {
     Name    = "${var.name_prefix}-ec2"
     Project = var.project_name
   }
 }
+
