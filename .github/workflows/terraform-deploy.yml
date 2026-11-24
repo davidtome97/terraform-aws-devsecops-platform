@@ -1,0 +1,57 @@
+name: Terraform Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.tf"
+      - "**/*.tfvars"
+      - ".terraform.lock.hcl"
+      - "scripts/**"
+      - ".github/workflows/terraform-deploy.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Terraform Deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.6
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::490145258703:role/terraform-github-deploy
+          aws-region: eu-west-1
+          role-session-name: terraform-deploy-${{ github.run_id }}
+          allowed-account-ids: 490145258703
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
