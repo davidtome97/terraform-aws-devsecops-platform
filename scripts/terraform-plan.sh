@@ -23,7 +23,8 @@ echo "Generating Terraform plan..."
 terraform plan \
   -input=false \
   -lock=false \
-  -no-color
+  -no-color \
+  -var-file=environments/dev.tfvars
 
 echo ""
 echo "=========================================="
