@@ -1,6 +1,6 @@
-# checkov:skip=CKV_AWS_144:Cross-region replication is intentionally not enabled for this low-cost single-region lab
-# checkov:skip=CKV2_AWS_62:Event notifications are not required for the Terraform remote state bucket
 resource "aws_s3_bucket" "terraform_state" {
+  # checkov:skip=CKV_AWS_144:Cross-region replication is intentionally not enabled for this low-cost single-region lab
+  # checkov:skip=CKV2_AWS_62:Event notifications are not required for the Terraform remote state bucket
   bucket = var.state_bucket_name
 
   tags = {
@@ -64,10 +64,30 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
   ]
 }
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_kms_key" "terraform_state" {
   description             = "KMS key for Terraform remote state"
   deletion_window_in_days = 7
   enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Sid    = "EnableRootPermissions"
+        Effect = "Allow"
+
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+
+        Action   = "kms:*"
+        Resource = "*"
+      }
+    ]
+  })
 
   tags = {
     Name    = "terraform-state-kms"
@@ -120,9 +140,53 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state_l
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.terraform_state.arn
     }
   }
+}
+
+data "aws_iam_policy_document" "terraform_state_logs" {
+  statement {
+    sid    = "AllowS3ServerAccessLogging"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["logging.s3.amazonaws.com"]
+    }
+
+    actions = [
+      "s3:PutObject"
+    ]
+
+    resources = [
+      "${aws_s3_bucket.terraform_state_logs.arn}/state-access-logs/*"
+    ]
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+
+      values = [
+        aws_s3_bucket.terraform_state.arn
+      ]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+
+      values = [
+        data.aws_caller_identity.current.account_id
+      ]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "terraform_state_logs" {
+  bucket = aws_s3_bucket.terraform_state_logs.id
+  policy = data.aws_iam_policy_document.terraform_state_logs.json
 }
 
 resource "aws_s3_bucket_logging" "terraform_state" {
@@ -132,7 +196,8 @@ resource "aws_s3_bucket_logging" "terraform_state" {
   target_prefix = "state-access-logs/"
 
   depends_on = [
-    aws_s3_bucket_public_access_block.terraform_state_logs
+    aws_s3_bucket_public_access_block.terraform_state_logs,
+    aws_s3_bucket_policy.terraform_state_logs
   ]
 }
 
