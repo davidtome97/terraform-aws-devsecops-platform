@@ -14,6 +14,7 @@ resource "aws_s3_bucket" "terraform_state_logs" {
   # checkov:skip=CKV_AWS_18:This bucket is the access logging destination and does not log to itself
   # checkov:skip=CKV_AWS_144:Cross-region replication is intentionally not enabled for this low-cost lab
   # checkov:skip=CKV2_AWS_62:Event notifications are not required for this access logging bucket
+  # checkov:skip=CKV_AWS_145:S3 server access logging destination requires SSE-S3; SSE-KMS is not supported for direct S3 log delivery
 
   bucket = "${var.state_bucket_name}-logs"
 
