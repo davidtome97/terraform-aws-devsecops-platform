@@ -1,92 +1,85 @@
+# =========================================================
 # NETWORK OUTPUTS
+# =========================================================
 
 output "vpc_id" {
-
   description = "ID of the VPC"
-
-  value = aws_vpc.main.id
-
+  value       = module.network.vpc_id
 }
 
 output "public_subnet_id" {
-
   description = "ID of the public subnet"
-
-  value = aws_subnet.public.id
-
+  value       = module.network.public_subnet_id
 }
 
 output "private_subnet_id" {
-
   description = "ID of the private subnet"
-
-  value = aws_subnet.private.id
-
+  value       = module.network.private_subnet_id
 }
 
 output "internet_gateway_id" {
-
   description = "ID of the Internet Gateway"
-
-  value = aws_internet_gateway.main.id
-
+  value       = module.network.internet_gateway_id
 }
 
 output "public_route_table_id" {
-
   description = "ID of the public route table"
-
-  value = aws_route_table.public.id
-
+  value       = module.network.public_route_table_id
 }
 
 output "private_route_table_id" {
-
   description = "ID of the private route table"
-
-  value = aws_route_table.private.id
-
+  value       = module.network.private_route_table_id
 }
+
+# =========================================================
+# SECURITY OUTPUTS
+# =========================================================
 
 output "security_group_id" {
-
   description = "ID of the security group"
-
-  value = aws_security_group.terraform_lab.id
-
+  value       = module.security.security_group_id
 }
+
+# =========================================================
+# AMI OUTPUTS
+# =========================================================
 
 output "ubuntu_ami_id" {
   description = "ID of the latest Ubuntu 24.04 LTS AMI"
-  value       = data.aws_ami.ubuntu.id
-
+  value       = module.compute.ubuntu_ami_id
 }
 
+# =========================================================
 # COMPUTE OUTPUTS
+# =========================================================
 
 output "ec2_instance_id" {
   description = "ID of the DevSecOps EC2 instance"
-  value       = aws_instance.devsecops.id
+  value       = module.compute.instance_id
 }
 
 output "ec2_public_ip" {
   description = "Public IPv4 address of the DevSecOps EC2 instance"
-  value       = aws_instance.devsecops.public_ip
+  value       = module.compute.public_ip
 }
 
 output "ec2_private_ip" {
   description = "Private IPv4 address of the DevSecOps EC2 instance"
-  value       = aws_instance.devsecops.private_ip
+  value       = module.compute.private_ip
 }
 
 output "ec2_iam_role_name" {
   description = "IAM Role attached to the EC2 instance"
-  value       = aws_iam_role.ec2_ssm.name
+  value       = module.compute.iam_role_name
 }
 
+# =========================================================
+# ADVANCED TERRAFORM OUTPUTS
+# =========================================================
 
 output "uppercase_servers" {
-  description = "servidores transformados a mayusculas mediante una expresion for"
+  description = "Servidores transformados a mayusculas mediante una expresion for"
   value       = local.uppercase_servers
 }
 
@@ -101,7 +94,7 @@ output "server_map" {
 }
 
 output "example_instance_type" {
-  description = "tipo de instancia seleccionado mediante una expresion condicional"
+  description = "Tipo de instancia seleccionado mediante una expresion condicional"
   value       = local.example_instance_type
 }
 

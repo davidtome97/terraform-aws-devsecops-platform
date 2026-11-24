@@ -1,8 +1,7 @@
-# SECURITY GROUPS
 resource "aws_security_group" "terraform_lab" {
-  name        = "${local.name_prefix}-sg"
+  name        = "${var.name_prefix}-sg"
   description = "security group for terraform learning project"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = var.vpc_id
 
   egress {
     description = "allow all outbound traffic"
@@ -14,7 +13,7 @@ resource "aws_security_group" "terraform_lab" {
   }
 
   tags = {
-    Name    = "${local.name_prefix}-sg"
+    Name    = "${var.name_prefix}-sg"
     Project = var.project_name
   }
 }

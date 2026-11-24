@@ -12,14 +12,17 @@ reforzar conceptos importantes para **HashiCorp Terraform Associate**.
 planificar → revisar → aplicar → verificar → documentar → versionar.
 
 > 🚧 **Estado actual:** Fundamentos + State/Backend remoto +
-> Networking + Compute/EC2 + Terraform intermedio/avanzado completados.
+> Networking + Compute/EC2 + Terraform intermedio/avanzado +
+> **Módulos y estructura profesional completados**.
 > 🔐 EC2 administrada mediante **AWS Systems Manager Session Manager**,
 > sin SSH público ni puerto 22 abierto.
 > ☁️ El State del proyecto principal está almacenado remotamente en
 > **Amazon S3**, con cifrado, versionado y locking.
+> 🧩 La infraestructura está organizada mediante **Child Modules**
+> reutilizables para Networking, Security y Compute.
 > 🧠 Se han practicado conceptos avanzados como `count`, `for_each`,
-> expresiones `for`, `dynamic`, `lifecycle`, `import`, `moved` y
-> reemplazo controlado de recursos.
+> expresiones `for`, `dynamic`, `lifecycle`, `import`, `moved`,
+> reemplazo controlado de recursos y composición de módulos.
 
 ---
 
@@ -48,6 +51,13 @@ planificar → revisar → aplicar → verificar → documentar → versionar.
 - Importar infraestructura existente.
 - Refactorizar direcciones mediante `moved`.
 - Forzar reemplazos de forma controlada.
+- Comprender Root Modules y Child Modules.
+- Diseñar módulos reutilizables mediante inputs y outputs.
+- Componer módulos mediante sus interfaces públicas.
+- Utilizar módulos locales y comprender módulos remotos.
+- Comprender `source` y versionado de módulos.
+- Conocer Terraform Registry.
+- Refactorizar una configuración monolítica hacia módulos reutilizables.
 - Validar cambios antes de modificar AWS.
 - Verificar infraestructura mediante AWS CLI.
 - Diagnosticar problemas reales de infraestructura.
@@ -72,7 +82,7 @@ planificar → revisar → aplicar → verificar → documentar → versionar.
 | Git | Control de versiones |
 | GitHub | Repositorio remoto |
 
-**Región AWS:** `eu-west-1`
+**Región AWS:** `eu-west-1`  
 **Availability Zone actual:** `eu-west-1a`
 
 ---
@@ -138,9 +148,13 @@ planificar → revisar → aplicar → verificar → documentar → versionar.
 06 — Módulos y estructura profesional
      ├── Root Module / Child Modules
      ├── Inputs / Outputs
+     ├── Module Composition
      ├── Module Sources
      ├── Terraform Registry
      ├── Versionado
+     ├── Reutilización
+     ├── path.module / path.root
+     ├── Resource Addressing
      └── Refactoring
 
 07+ — DevSecOps
@@ -165,13 +179,26 @@ terraform-aws-devsecops-platform/
 ├── variables.tf
 ├── terraform.tfvars
 ├── locals.tf
-├── network.tf
-├── security.tf
-├── compute.tf
-├── iam.tf
+├── modules.tf
 ├── advanced.tf
-├── user-data.sh
 ├── outputs.tf
+│
+├── modules/
+│   ├── network/
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   │
+│   ├── security/
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   │
+│   └── compute/
+│       ├── main.tf
+│       ├── variables.tf
+│       ├── outputs.tf
+│       └── user-data.sh
 │
 ├── bootstrap/
 │   ├── main.tf
@@ -193,7 +220,31 @@ no aparezcan en el repositorio, por ejemplo `terraform.tfvars`,
 Terraform interpreta todos los archivos `.tf` del mismo directorio como
 **una única configuración**.
 
-El nombre y orden de los archivos no determina el orden de creación.
+Por tanto:
+
+```text
+main.tf
+variables.tf
+outputs.tf
+```
+
+no son nombres obligatorios.
+
+Los límites de un módulo vienen determinados por su **directorio**, no
+por el nombre de los archivos.
+
+Actualmente el directorio raíz constituye el **Root Module**, mientras
+que:
+
+```text
+modules/network/
+modules/security/
+modules/compute/
+```
+
+constituyen tres **Child Modules**.
+
+El nombre y orden de los archivos `.tf` no determina el orden de creación.
 Terraform utiliza su **Dependency Graph**.
 
 ---
@@ -202,7 +253,9 @@ Terraform utiliza su **Dependency Graph**.
 
 ## 01.1 — Organización
 
-Separar archivos por responsabilidad mejora la mantenibilidad:
+Separar archivos por responsabilidad mejora la mantenibilidad.
+
+Antes de modularizar utilizábamos:
 
 ```text
 network.tf   → Networking
@@ -213,6 +266,8 @@ advanced.tf  → Conceptos Terraform avanzados
 outputs.tf   → Outputs
 backend.tf   → Backend
 ```
+
+Todos estos archivos pertenecían al mismo **Root Module**.
 
 Terraform identifica un recurso por su dirección:
 
@@ -1083,6 +1138,10 @@ valores.
 
 ## 04.4 — EC2
 
+Antes de modularizar, la EC2 se encontraba directamente en el Root Module.
+
+Conceptualmente:
+
 ```hcl
 resource "aws_instance" "devsecops" {
   ami           = data.aws_ami.ubuntu.id
@@ -1098,11 +1157,6 @@ resource "aws_instance" "devsecops" {
   iam_instance_profile = aws_iam_instance_profile.ec2_ssm.name
 
   user_data = file("${path.module}/user-data.sh")
-
-  tags = {
-    Name    = "${local.name_prefix}-ec2"
-    Project = var.project_name
-  }
 }
 ```
 
@@ -1125,6 +1179,9 @@ Instance Profile
  ↓
 EC2
 ```
+
+Posteriormente estos componentes fueron refactorizados al módulo
+`compute`.
 
 ---
 
@@ -1396,8 +1453,6 @@ activo.
 
 Esto confirmó desde AWS y desde la propia instancia que Systems Manager
 funcionaba correctamente.
-
----
 
 # 05 — Terraform intermedio / avanzado
 
@@ -2166,12 +2221,1121 @@ taint
 └── workflow histórico de reemplazo
 ```
 
+---
+
+# 06 — Módulos y estructura profesional
+
+En esta sección refactorizamos la configuración para pasar de una
+estructura donde Networking, Security, Compute e IAM estaban definidos
+directamente en el Root Module a una arquitectura basada en módulos
+reutilizables.
+
+El objetivo no era cambiar la infraestructura AWS, sino mejorar la
+organización, encapsulación, reutilización y mantenibilidad del código
+Terraform.
+
+---
+
+## 06.1 — Root Module
+
+Antes de la refactorización teníamos:
+
+```text
+ROOT MODULE
+│
+├── network.tf
+├── security.tf
+├── compute.tf
+├── iam.tf
+├── advanced.tf
+└── outputs.tf
+```
+
+Aunque existieran varios archivos `.tf`, todos pertenecían al mismo
+módulo porque estaban dentro del mismo directorio.
+
+### 🧠 ¿Qué aprendimos?
+
+```text
+varios archivos .tf
+≠
+varios módulos
+```
+
+Terraform carga conjuntamente los archivos `.tf` de un directorio como
+parte del mismo módulo.
+
+El directorio desde el que trabajamos constituye el **Root Module**.
+
+---
+
+## 06.2 — Child Modules
+
+Creamos:
+
+```text
+modules/
+├── network/
+├── security/
+└── compute/
+```
+
+Cada directorio representa un Child Module independiente.
+
+Arquitectura:
+
+```text
+ROOT MODULE
+│
+├── module.network
+├── module.security
+└── module.compute
+```
+
+Los módulos permiten encapsular responsabilidades y reutilizar
+configuración.
+
+---
+
+## 06.3 — Estructura de un módulo
+
+Utilizamos la convención:
+
+```text
+module/
+├── main.tf
+├── variables.tf
+└── outputs.tf
+```
+
+Conceptualmente:
+
+```text
+variables.tf
+     ↓
+INPUTS
+
+main.tf
+     ↓
+IMPLEMENTACIÓN
+
+outputs.tf
+     ↓
+OUTPUTS
+```
+
+Estos nombres de archivo son una **convención**, no una obligación de
+Terraform.
+
+Por ejemplo, todos los bloques podrían existir en un único archivo `.tf`
+y seguir formando el mismo módulo.
+
+También podríamos tener:
+
+```text
+module/
+├── networking.tf
+├── routes.tf
+├── locals.tf
+├── variables.tf
+└── outputs.tf
+```
+
+y seguiría siendo un único módulo.
+
+### 🧠 ¿Qué aprendimos?
+
+El **directorio** delimita el módulo.
+
+Los nombres `main.tf`, `variables.tf` y `outputs.tf` simplemente ayudan a
+organizarlo.
+
+---
+
+## 06.4 — Módulo Network
+
+Creamos:
+
+```text
+modules/network/
+├── main.tf
+├── variables.tf
+└── outputs.tf
+```
+
+Movimos al módulo Network:
+
+```text
+VPC
+Internet Gateway
+Public Subnet
+Private Subnet
+Public Route Table
+Private Route Table
+Routes
+Route Table Associations
+```
+
+El módulo recibe valores como:
+
+```text
+vpc_cidr
+public_subnet_cidr
+private_subnet_cidr
+availability_zone
+project_name
+name_prefix
+```
+
+y expone:
+
+```text
+vpc_id
+public_subnet_id
+private_subnet_id
+internet_gateway_id
+public_route_table_id
+private_route_table_id
+```
+
+Conceptualmente:
+
+```text
+INPUTS
+  │
+  ▼
+┌─────────────────┐
+│ module.network  │
+│                 │
+│ VPC             │
+│ Subnets         │
+│ IGW             │
+│ Routes          │
+└────────┬────────┘
+         │
+         ▼
+      OUTPUTS
+```
+
+---
+
+## 06.5 — Variables de un Child Module
+
+Las variables de un Child Module pertenecen a ese módulo.
+
+Por ejemplo:
+
+```hcl
+variable "vpc_cidr" {
+  description = "CIDR block de la VPC"
+  type        = string
+}
+```
+
+La variable:
+
+```text
+var.vpc_cidr
+```
+
+del Root Module y:
+
+```text
+var.vpc_cidr
+```
+
+del Child Module son variables diferentes.
+
+Debemos conectarlas explícitamente:
+
+```hcl
+module "network" {
+  source = "./modules/network"
+
+  vpc_cidr = var.vpc_cidr
+}
+```
+
+Conceptualmente:
+
+```text
+ROOT MODULE
+var.vpc_cidr
+     │
+     ▼
+module.network
+     │
+     ▼
+var.vpc_cidr
+CHILD MODULE
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Los módulos tienen su propio ámbito.
+
+Las variables no se comparten automáticamente entre módulos.
+
+---
+
+## 06.6 — Outputs de un Child Module
+
+El módulo Network expone valores mediante outputs.
+
+Ejemplo:
+
+```hcl
+output "vpc_id" {
+  description = "ID de la VPC creada por el módulo"
+  value       = aws_vpc.main.id
+}
+```
+
+Desde el Root Module podemos utilizar:
+
+```hcl
+module.network.vpc_id
+```
+
+Conceptualmente:
+
+```text
+module.network
+      │
+      │ aws_vpc.main.id
+      ▼
+ output "vpc_id"
+      │
+      ▼
+module.network.vpc_id
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Los outputs forman parte de la **interfaz pública del módulo**.
+
+El Root Module consume los valores que el Child Module decide exponer.
+
+---
+
+## 06.7 — Módulo Security
+
+Creamos:
+
+```text
+modules/security/
+├── main.tf
+├── variables.tf
+└── outputs.tf
+```
+
+El módulo Security recibe:
+
+```text
+vpc_id
+project_name
+name_prefix
+```
+
+y crea el Security Group.
+
+El Root Module conecta Network con Security:
+
+```hcl
+module "security" {
+  source = "./modules/security"
+
+  vpc_id       = module.network.vpc_id
+  project_name = var.project_name
+  name_prefix  = local.name_prefix
+}
+```
+
+El flujo es:
+
+```text
+module.network
+      │
+      │ vpc_id
+      ▼
+module.security
+      │
+      ▼
+Security Group
+```
+
+El módulo Security no necesita conocer cómo Network implementa
+internamente la VPC.
+
+Únicamente necesita recibir:
+
+```text
+vpc_id
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Un módulo reutilizable debería depender de **inputs**, evitando conocer
+innecesariamente la implementación interna de otros módulos.
+
+---
+
+## 06.8 — Módulo Compute
+
+Creamos:
+
+```text
+modules/compute/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+└── user-data.sh
+```
+
+Agrupamos dentro de Compute:
+
+```text
+Ubuntu AMI Data Source
+IAM Role
+SSM Policy Attachment
+Instance Profile
+EC2
+User Data
+```
+
+El módulo recibe:
+
+```text
+instance_type
+subnet_id
+security_group_id
+project_name
+name_prefix
+```
+
+y expone:
+
+```text
+instance_id
+public_ip
+private_ip
+iam_role_name
+ubuntu_ami_id
+```
+
+Arquitectura:
+
+```text
+module.compute
+│
+├── data.aws_ami.ubuntu
+├── aws_iam_role.ec2_ssm
+├── aws_iam_role_policy_attachment.ssm_core
+├── aws_iam_instance_profile.ec2_ssm
+└── aws_instance.devsecops
+```
+
+Decidimos mantener IAM dentro del módulo Compute porque el Role,
+Policy Attachment e Instance Profile existen específicamente para
+permitir que esta EC2 utilice Systems Manager.
+
+Separarlo en otro módulo en este punto habría añadido complejidad sin
+aportar una reutilización clara.
+
+---
+
+## 06.9 — Composición de módulos
+
+El Root Module actúa como orquestador:
+
+```text
+                    module.network
+                    /            \
+              vpc_id              public_subnet_id
+                │                       │
+                ▼                       │
+         module.security                │
+                │                       │
+        security_group_id               │
+                │                       │
+                └──────────┬────────────┘
+                           ▼
+                    module.compute
+```
+
+La configuración principal contiene:
+
+```hcl
+module "network" {
+  source = "./modules/network"
+
+  vpc_cidr            = var.vpc_cidr
+  public_subnet_cidr  = var.public_subnet_cidr
+  private_subnet_cidr = var.private_subnet_cidr
+  availability_zone   = var.availability_zone
+  project_name        = var.project_name
+  name_prefix         = local.name_prefix
+}
+
+module "security" {
+  source = "./modules/security"
+
+  vpc_id       = module.network.vpc_id
+  project_name = var.project_name
+  name_prefix  = local.name_prefix
+}
+
+module "compute" {
+  source = "./modules/compute"
+
+  instance_type     = var.instance_type
+  subnet_id         = module.network.public_subnet_id
+  security_group_id = module.security.security_group_id
+  project_name      = var.project_name
+  name_prefix       = local.name_prefix
+}
+```
+
+Terraform puede inferir las dependencias a partir de estas referencias.
+
+No necesitamos añadir `depends_on` cuando la relación ya está expresada
+mediante referencias.
+
+---
+
+## 06.10 — Módulo como una función
+
+Una forma sencilla de entender un módulo es compararlo con una función:
+
+```text
+FUNCIÓN                    TERRAFORM MODULE
+
+parámetros            →    variables
+función               →    módulo
+return                →    outputs
+```
+
+Conceptualmente:
+
+```text
+INPUTS
+   │
+   ▼
+┌─────────────┐
+│   MODULE    │
+│             │
+│ resources   │
+│ data        │
+│ locals      │
+│ lógica HCL  │
+└──────┬──────┘
+       │
+       ▼
+    OUTPUTS
+```
+
+Esto ayuda a entender por qué un módulo debería tener una interfaz clara.
+
+---
+
+## 06.11 — Resource Addressing
+
+Antes de modularizar:
+
+```text
+aws_vpc.main
+aws_security_group.terraform_lab
+aws_instance.devsecops
+```
+
+Después:
+
+```text
+module.network.aws_vpc.main
+module.security.aws_security_group.terraform_lab
+module.compute.aws_instance.devsecops
+```
+
+Desde el Root Module no consumimos directamente los detalles internos
+del Child Module.
+
+Utilizamos los outputs:
+
+```text
+module.network.vpc_id
+module.security.security_group_id
+module.compute.instance_id
+```
+
+### 🧠 ¿Qué aprendimos?
+
+Mover un recurso entre archivos `.tf` del mismo módulo normalmente no
+cambia su dirección.
+
+Mover un recurso a un Child Module **sí cambia su dirección**.
+
+---
+
+## 06.12 — State y refactoring hacia módulos
+
+Antes de realizar la refactorización comprobamos:
+
+```bash
+terraform state list
+```
+
+El State no contenía recursos.
+
+También verificamos el State remoto y comprobamos que la infraestructura
+del laboratorio había sido destruida previamente.
+
+Por tanto:
+
+```text
+State vacío
+    │
+    ▼
+no existen direcciones que migrar
+    │
+    ▼
+no necesitamos moved/state mv
+```
+
+Si los recursos hubieran seguido registrados en el State, mover:
+
+```text
+aws_vpc.main
+```
+
+a:
+
+```text
+module.network.aws_vpc.main
+```
+
+habría supuesto un cambio de dirección que deberíamos gestionar de forma
+segura.
+
+Podríamos utilizar mecanismos como:
+
+```text
+moved blocks
+```
+
+o:
+
+```text
+terraform state mv
+```
+
+dependiendo del caso.
+
+### 🧠 ¿Qué aprendimos?
+
+Cambiar la organización del código puede tener implicaciones sobre el
+State aunque la infraestructura AWS deseada sea exactamente la misma.
+
+---
+
+## 06.13 — `path.module`
+
+Antes teníamos:
+
+```hcl
+user_data = file("${path.module}/user-data.sh")
+```
+
+en el Root Module.
+
+En ese contexto:
+
+```text
+path.module → .
+```
+
+Al mover la EC2 a:
+
+```text
+modules/compute/
+```
+
+movimos también:
+
+```text
+user-data.sh
+```
+
+al módulo Compute.
+
+Mantenemos:
+
+```hcl
+user_data = file("${path.module}/user-data.sh")
+```
+
+pero ahora `path.module` hace referencia al directorio:
+
+```text
+modules/compute/
+```
+
+Esto permite que el módulo sea autocontenido.
+
+### 🧠 ¿Qué aprendimos?
+
+```text
+path.module
+→ directorio del módulo donde se evalúa la expresión
+
+path.root
+→ directorio del Root Module
+```
+
+---
+
+## 06.14 — Module Sources
+
+Un módulo puede obtenerse desde diferentes orígenes.
+
+Nuestro proyecto utiliza módulos locales:
+
+```hcl
+module "network" {
+  source = "./modules/network"
+}
+```
+
+`source` responde:
+
+```text
+¿Dónde está el código del módulo?
+```
+
+Conceptualmente podemos encontrar módulos procedentes de:
+
+```text
+Local filesystem
+Terraform Registry
+Git
+GitHub
+S3
+otros orígenes soportados
+```
+
+Cuando añadimos o modificamos llamadas a módulos ejecutamos:
+
+```bash
+terraform init
+```
+
+Terraform inicializa los módulos requeridos junto con otros componentes
+necesarios de la configuración.
+
+---
+
+## 06.15 — Terraform Registry
+
+Terraform permite reutilizar módulos publicados en registries.
+
+Ejemplo conceptual:
+
+```hcl
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+}
+```
+
+En lugar de implementar manualmente:
+
+```text
+VPC
+├── Subnets
+├── Internet Gateway
+├── Route Tables
+├── NAT
+└── otros componentes
+```
+
+podemos consumir un módulo reutilizable que implemente esas
+responsabilidades.
+
+Esto no significa que siempre debamos utilizar módulos externos.
+
+En este proyecto decidimos crear nuestros propios módulos para aprender
+cómo funcionan internamente los recursos y cómo se componen.
+
+### 🧠 ¿Qué aprendimos?
+
+Antes de utilizar un módulo externo debemos comprender:
+
+```text
+¿Qué recursos crea?
+¿Qué inputs necesita?
+¿Qué outputs proporciona?
+¿Qué versión estamos utilizando?
+¿Qué impacto tendrá en nuestra infraestructura?
+```
+
+---
+
+## 06.16 — `source` vs `version`
+
+Podemos encontrar:
+
+```hcl
+module "example" {
+  source  = "namespace/name/provider"
+  version = "x.y.z"
+}
+```
+
+Distinción:
+
+```text
+source
+→ ¿de dónde obtenemos el módulo?
+
+version
+→ ¿qué versión del módulo queremos?
+```
+
+La versión del módulo y la versión del provider son conceptos
+independientes.
+
+Por ejemplo:
+
+```text
+AWS Provider
+      │
+      └── versión del provider
+
+VPC Module
+      │
+      └── versión del módulo
+```
+
+No deben confundirse.
+
+---
+
+## 06.17 — Versionado de módulos
+
+Fijar restricciones de versión ayuda a evitar actualizaciones
+incontroladas de módulos externos.
+
+Conceptualmente:
+
+```text
+Hoy
+│
+└── módulo versión X
+        │
+        ▼
+infraestructura conocida
+
+
+Futuro
+│
+└── nueva versión del módulo
+        │
+        ▼
+puede introducir cambios
+```
+
+Para módulos obtenidos mediante un Registry podemos utilizar el
+argumento `version`.
+
+Para determinados orígenes como Git, una revisión concreta puede
+seleccionarse mediante mecanismos propios del origen, como una referencia
+Git.
+
+### 🧠 ¿Qué aprendimos?
+
+```text
+source ≠ version
+```
+
+y:
+
+```text
+module version ≠ provider version
+```
+
+---
+
+## 06.18 — Reutilización
+
+El mismo módulo puede instanciarse varias veces.
+
+Conceptualmente:
+
+```text
+                modules/network
+                      │
+                 mismo código
+                  /       \
+                 /         \
+                ▼           ▼
+      module.network_dev  module.network_prod
+              │                  │
+              ▼                  ▼
+           VPC DEV            VPC PROD
+```
+
+Cada instancia puede recibir inputs diferentes.
+
+Por ejemplo:
+
+```text
+DEV
+10.0.0.0/16
+
+PROD
+10.100.0.0/16
+```
+
+Esto permite reutilizar la implementación sin copiar y pegar todos los
+resources.
+
+---
+
+## 06.19 — `for_each` con módulos
+
+La idea de `for_each` también puede aplicarse a instancias de módulos.
+
+Conceptualmente:
+
+```hcl
+module "network" {
+  for_each = {
+    dev  = "10.0.0.0/16"
+    prod = "10.100.0.0/16"
+  }
+
+  source = "./modules/network"
+
+  vpc_cidr = each.value
+
+  # otros inputs...
+}
+```
+
+Las instancias tendrían direcciones como:
+
+```text
+module.network["dev"]
+module.network["prod"]
+```
+
+### 🧠 ¿Qué aprendimos?
+
+La identidad mediante claves que estudiamos con `for_each` también puede
+utilizarse al crear múltiples instancias de un módulo.
+
+---
+
+## 06.20 — Dependencias entre módulos
+
+Esta referencia:
+
+```hcl
+vpc_id = module.network.vpc_id
+```
+
+permite a Terraform inferir que Security necesita información producida
+por Network.
+
+Y:
+
+```hcl
+security_group_id = module.security.security_group_id
+```
+
+permite inferir que Compute depende de Security.
+
+Conceptualmente:
+
+```text
+NETWORK
+   │
+   ▼
+SECURITY
+   │
+   ▼
+COMPUTE
+```
+
+Pero Compute también recibe directamente:
+
+```text
+module.network.public_subnet_id
+```
+
+por lo que el grafo real incluye varias relaciones.
+
+### 🧠 ¿Qué aprendimos?
+
+No necesitamos escribir manualmente:
+
+```hcl
+depends_on = [
+  module.network,
+  module.security
+]
+```
+
+cuando las referencias ya permiten a Terraform construir correctamente
+el Dependency Graph.
+
+---
+
+## 06.21 — Validación de la refactorización
+
+Después de crear y conectar los módulos ejecutamos:
+
+```bash
+terraform fmt -recursive
+terraform init
+terraform validate
+terraform plan
+```
+
+Terraform confirmó:
+
+```text
+Success! The configuration is valid.
+```
+
+El plan final mostró:
+
+```text
+Plan: 23 to add, 0 to change, 0 to destroy.
+```
+
+Antes y después de modularizar seguíamos planificando los mismos 23
+objetos.
+
+### 🧠 ¿Qué aprendimos?
+
+Los módulos no son por sí mismos recursos AWS adicionales.
+
+La refactorización cambió la **organización del código y las direcciones
+Terraform**, pero no la arquitectura AWS que queríamos construir.
+
+---
+
+## 06.22 — Arquitectura modular final
+
+```text
+                         ROOT MODULE
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+              ▼               ▼               ▼
+      module.network   module.security   module.compute
+              │               ▲               ▲
+              │               │               │
+              ├── vpc_id ─────┘               │
+              │                               │
+              └── public_subnet_id ───────────┤
+                                              │
+                   security_group_id ─────────┘
+```
+
+Responsabilidades:
+
+```text
+NETWORK
+├── VPC
+├── Public Subnet
+├── Private Subnet
+├── Internet Gateway
+├── Route Tables
+├── Route
+└── Associations
+
+SECURITY
+└── Security Group
+
+COMPUTE
+├── Ubuntu AMI Data Source
+├── IAM Role
+├── SSM Policy Attachment
+├── Instance Profile
+├── EC2
+└── User Data
+```
+
+El Root Module se encarga principalmente de **componer y conectar**
+estos componentes.
+
+---
+
+## 06.23 — Resumen
+
+```text
+Root Module
+└── módulo principal desde el que trabajamos
+
+Child Module
+└── módulo llamado desde otro módulo
+
+variables
+└── inputs del módulo
+
+outputs
+└── valores expuestos por el módulo
+
+source
+└── origen del código del módulo
+
+version
+└── restricción de versión para módulos de Registry
+
+path.module
+└── directorio del módulo actual
+
+path.root
+└── directorio del Root Module
+
+module.network.vpc_id
+└── consumo de un output
+
+module.network.aws_vpc.main
+└── dirección de un recurso dentro de un Child Module
+
+terraform init
+└── inicializa módulos, providers y backend
+
+Terraform Registry
+└── distribución y reutilización de módulos
+
+moved / state mv
+└── herramientas relevantes cuando cambia una dirección
+```
+
+La idea principal:
+
+```text
+INPUTS
+   ↓
+┌────────────┐
+│   MODULE   │
+└─────┬──────┘
+      ↓
+   OUTPUTS
+```
+
+Un módulo no es simplemente una carpeta para ordenar archivos.
+
+Su objetivo es **encapsular una responsabilidad y permitir reutilizar y
+componer configuración Terraform**.
 
 ---
 
 # 🔐 Arquitectura desarrollada
 
-Durante las secciones 03 y 04 desplegamos la siguiente arquitectura:
+La infraestructura que hemos construido conceptualmente sigue siendo:
 
 ```text
                        TERRAFORM CLI
@@ -2222,9 +3386,22 @@ Durante las secciones 03 y 04 desplegamos la siguiente arquitectura:
                               sin SSH / 22
 ```
 
+La diferencia es que ahora Terraform organiza la implementación mediante:
+
+```text
+ROOT MODULE
+│
+├── module.network
+├── module.security
+└── module.compute
+```
+
 > La infraestructura de laboratorio fue destruida de forma controlada al
 > finalizar la sección 05. El código Terraform permanece versionado para
 > poder reproducirla posteriormente.
+>
+> El `terraform plan` realizado después de modularizar muestra actualmente
+> los recursos que Terraform crearía al volver a desplegar el laboratorio.
 
 El Remote State continúa almacenado en el backend S3 independiente.
 
@@ -2275,6 +3452,7 @@ Sí versionamos normalmente:
 README.md
 .gitignore
 .terraform.lock.hcl
+modules/
 user-data.sh
 ```
 
@@ -2287,6 +3465,16 @@ terraform.tfvars
 tfplan
 .terraform/
 ```
+
+Comprobamos explícitamente:
+
+```bash
+git check-ignore terraform.tfstate
+git check-ignore terraform.tfstate.backup
+git check-ignore bootstrap/terraform.tfstate
+```
+
+Los tres States están correctamente ignorados por Git.
 
 ### 🧠 ¿Qué aprendimos?
 
@@ -2336,6 +3524,26 @@ Normalmente debe versionarse.
                Git commit
 ```
 
+Para cambios estructurales:
+
+```text
+Entender direcciones actuales
+          ↓
+Revisar State
+          ↓
+Modificar configuración
+          ↓
+Gestionar moved/state mv si procede
+          ↓
+terraform init
+          ↓
+terraform validate
+          ↓
+terraform plan
+          ↓
+REVISAR
+```
+
 Para destrucciones:
 
 ```text
@@ -2380,6 +3588,12 @@ Volver a planificar
 Aplicar únicamente cuando sea correcto
 ```
 
+Una refactorización de código también puede provocar destrucciones
+inesperadas si Terraform interpreta que las direcciones de los recursos
+han cambiado.
+
+Por eso siempre debemos revisar el State y el plan.
+
 ---
 
 # 🧪 Comandos Terraform utilizados
@@ -2391,12 +3605,24 @@ terraform init
 terraform init -migrate-state
 ```
 
+Después de añadir o modificar módulos:
+
+```bash
+terraform init
+```
+
+---
+
 ## Formato y validación
 
 ```bash
 terraform fmt
+terraform fmt -recursive
+terraform fmt -check -recursive
 terraform validate
 ```
+
+---
 
 ## Planificación
 
@@ -2407,6 +3633,8 @@ terraform plan -destroy
 terraform plan -replace=RESOURCE_ADDRESS
 ```
 
+---
+
 ## Aplicación
 
 ```bash
@@ -2414,11 +3642,15 @@ terraform apply
 terraform apply tfplan
 ```
 
+---
+
 ## Destrucción
 
 ```bash
 terraform destroy
 ```
+
+---
 
 ## Outputs
 
@@ -2428,11 +3660,15 @@ terraform output ec2_instance_id
 terraform output -raw ec2_instance_id
 ```
 
+---
+
 ## Inspección
 
 ```bash
 terraform show
 ```
+
+---
 
 ## State
 
@@ -2441,13 +3677,18 @@ terraform state list
 terraform state show RESOURCE_ADDRESS
 terraform state mv ORIGEN DESTINO
 terraform state rm RESOURCE_ADDRESS
+terraform state pull
 ```
+
+---
 
 ## Import
 
 ```bash
 terraform import RESOURCE_ADDRESS REMOTE_ID
 ```
+
+---
 
 ## Operaciones especiales estudiadas
 
@@ -2597,6 +3838,26 @@ aws s3api list-object-versions \
 - `-target`.
 - Destrucción controlada.
 
+## Módulos
+
+- Root Module.
+- Child Modules.
+- Module Blocks.
+- Module Inputs.
+- Module Outputs.
+- Module Composition.
+- Module Sources.
+- Local Modules.
+- Remote Modules.
+- Terraform Registry.
+- Module Versioning.
+- Resource Addressing dentro de módulos.
+- Reutilización de módulos.
+- `for_each` con módulos.
+- `path.module`.
+- `path.root`.
+- Refactoring hacia Child Modules.
+
 ## AWS Networking
 
 - VPC.
@@ -2668,6 +3929,8 @@ aws s3api list-object-versions \
 - Documentación.
 - Reducción de superficie de exposición.
 - Automatización de configuración.
+- Separación de responsabilidades.
+- Componentes reutilizables.
 
 ---
 
@@ -2739,7 +4002,23 @@ Terraform AWS DevSecOps Platform
 │   ├── Limpieza del laboratorio                 ✅
 │   └── Examen Terraform Associate: 13/15        ✅
 │
-└── 06 — Módulos y estructura profesional        ⏳
+├── 06 — Módulos y estructura profesional        ✅
+│   ├── Root Module                              ✅
+│   ├── Child Modules                            ✅
+│   ├── Inputs / Outputs                         ✅
+│   ├── Network Module                           ✅
+│   ├── Security Module                          ✅
+│   ├── Compute Module                           ✅
+│   ├── Module Composition                       ✅
+│   ├── Module Sources                           ✅
+│   ├── Terraform Registry                       ✅
+│   ├── Module Versioning                        ✅
+│   ├── path.module / path.root                  ✅
+│   ├── Resource Addressing                      ✅
+│   ├── Reutilización                            ✅
+│   └── Refactoring                              ✅
+│
+└── 07+ — DevSecOps                              ⏳
 ```
 
 ---
@@ -2990,6 +4269,106 @@ taint
 
 ---
 
+## Root Module vs Child Module
+
+```text
+Root Module
+→ módulo principal
+
+Child Module
+→ módulo llamado desde otro módulo
+```
+
+Varios archivos `.tf` dentro de un mismo directorio no representan
+módulos diferentes.
+
+---
+
+## Inputs vs Outputs
+
+```text
+variables
+→ datos que recibe el módulo
+
+outputs
+→ datos que expone el módulo
+```
+
+---
+
+## `source` vs `version`
+
+```text
+source
+→ dónde está el módulo
+
+version
+→ qué versión queremos utilizar
+```
+
+No debemos confundir la versión de un módulo con la versión de un
+provider.
+
+---
+
+## Module Resource Address
+
+Un recurso dentro de un Child Module puede tener una dirección como:
+
+```text
+module.compute.aws_instance.devsecops
+```
+
+Mientras que un output se consume como:
+
+```text
+module.compute.instance_id
+```
+
+Son conceptos diferentes.
+
+---
+
+## `path.module` vs `path.root`
+
+```text
+path.module
+→ directorio del módulo actual
+
+path.root
+→ directorio del Root Module
+```
+
+---
+
+## Módulos y dependencias
+
+```hcl
+vpc_id = module.network.vpc_id
+```
+
+crea una relación que Terraform puede utilizar para construir el
+Dependency Graph.
+
+No necesitamos `depends_on` si la dependencia ya puede inferirse.
+
+---
+
+## Refactoring hacia módulos
+
+```text
+aws_vpc.main
+        ↓
+module.network.aws_vpc.main
+```
+
+es un cambio de dirección.
+
+Si el recurso ya existe en el State, debemos considerar una migración de
+dirección.
+
+---
+
 ## `merge()`
 
 ```text
@@ -3047,71 +4426,44 @@ Terraform simplemente no conoce todavía el valor definitivo.
 
 # 🚀 Próximos pasos
 
-Los bloques **00–05 están completados**.
+Los bloques **00–06 están completados**.
 
-El siguiente bloque será:
-
-# 06 — Módulos y estructura profesional
-
-Hasta ahora nuestra configuración principal funciona como un único
-**Root Module**:
-
-```text
-ROOT MODULE
-│
-├── backend.tf
-├── providers.tf
-├── variables.tf
-├── locals.tf
-├── network.tf
-├── security.tf
-├── compute.tf
-├── iam.tf
-├── advanced.tf
-└── outputs.tf
-```
-
-El siguiente objetivo será comprender cómo dividir responsabilidades en
-módulos reutilizables.
-
-Conceptualmente evolucionaremos hacia:
+La configuración ha evolucionado desde un único Root Module con todos los
+recursos definidos directamente hacia una arquitectura modular:
 
 ```text
 ROOT MODULE
 │
 ├── module.network
-│   ├── VPC
-│   ├── Subnets
-│   ├── Internet Gateway
-│   └── Route Tables
-│
 ├── module.security
-│   └── Security Groups
-│
 └── module.compute
-    ├── EC2
-    ├── IAM
-    └── SSM
 ```
 
-Estudiaremos:
+Hasta este punto hemos aprendido:
 
-- Qué es un módulo Terraform.
-- Root Module.
-- Child Modules.
-- Inputs.
-- Outputs.
-- Sources locales.
-- Sources remotos.
-- Terraform Registry.
-- Versionado de módulos.
-- Reutilización.
-- Composición de módulos.
-- Buenas prácticas.
-- Refactoring de infraestructura existente.
-- Implicaciones de los cambios de dirección en el State.
+```text
+Terraform Fundamentals
+        │
+        ▼
+State / Remote Backend
+        │
+        ▼
+AWS Networking
+        │
+        ▼
+Compute / EC2
+        │
+        ▼
+Terraform Advanced
+        │
+        ▼
+Modules
+```
 
-Posteriormente evolucionaremos hacia:
+El siguiente objetivo será evolucionar la infraestructura hacia prácticas
+de **DevSecOps y automatización**.
+
+Conceptualmente:
 
 ```text
 Terraform
@@ -3139,6 +4491,70 @@ CI/CD
             AWS
 
 Remote State ─────────────► Amazon S3
+```
+
+Los siguientes pasos permitirán trabajar progresivamente con conceptos
+como:
+
+```text
+Entornos
+   ↓
+dev / staging / prod
+
+CI/CD
+   ↓
+validación automática
+
+Security
+   ↓
+análisis de Infrastructure as Code
+
+Quality Gates
+   ↓
+bloquear cambios incorrectos
+
+Approval
+   ↓
+control antes de desplegar
+
+Terraform Apply
+   ↓
+despliegue controlado
+```
+
+Posteriormente podremos evolucionar hacia una plataforma más completa:
+
+```text
+Developer
+    │
+    ▼
+Git / GitHub
+    │
+    ▼
+CI/CD Pipeline
+    │
+    ├── terraform fmt
+    ├── terraform validate
+    ├── Security Scan
+    ├── terraform plan
+    │
+    ▼
+Approval
+    │
+    ▼
+terraform apply
+    │
+    ▼
+AWS
+    │
+    ├── Networking
+    ├── Security
+    └── Compute
+
+Terraform State
+    │
+    ▼
+Amazon S3
 ```
 
 El objetivo final es combinar:

@@ -56,7 +56,7 @@ resource "terraform_data" "for_each_example" {
 resource "aws_security_group" "dynamic_example" {
   name        = "${local.name_prefix}-dynamic-example"
   description = "Security group utilizado para practicar dynamic blocks"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = module.network.vpc_id
 
   dynamic "ingress" {
     for_each = var.example_ingress_rules
