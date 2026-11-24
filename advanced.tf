@@ -53,6 +53,7 @@ resource "terraform_data" "for_each_example" {
 # DYNAMIC BLOCKS
 # ============================================================
 
+# checkov:skip=CKV2_AWS_5:Security group intentionally standalone for dynamic block learning purposes
 resource "aws_security_group" "dynamic_example" {
   name        = "${local.name_prefix}-dynamic-example"
   description = "Security group utilizado para practicar dynamic blocks"

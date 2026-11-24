@@ -1,3 +1,4 @@
+# checkov:skip=CKV2_AWS_5:False positive - this security group is attached to the EC2 instance through the compute module
 resource "aws_security_group" "terraform_lab" {
   name        = "${var.name_prefix}-sg"
   description = "security group for terraform learning project"
